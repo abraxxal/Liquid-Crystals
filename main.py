@@ -1,23 +1,19 @@
 import numpy as np
 
-# D_t w^{m,v} = F*(n)^{m,v} x n^{m+1/2,v}
-# D_t n^{m,v} = n^{m+1/2,v} x w^{m+1/2,v}
-# 
-# F*(n) = C1 D_i(D_j n_j^{m+1/2}) + C2 D_j^+(D_j^- n_i^{m+1/2})
-#       + C3 [D_j(n_j^{m+1/2}(n_k^m (D_k n_i^m)^{1/2})) - (n_j^m (D_j n_k^m))^{1/2} (D_i n_k^{m+1/2})]
-
 ###############################
 ##        Parameters         ##
 ###############################
 
 # Spatial boundary values
-ds = 0.01; # Spatial step length
+ds = 0.25; # Spatial step length
 min_x, max_x = -0.5, 0.5
 min_y, max_y = -0.5, 0.5
-min_z, max_z = -ds, ds
+min_z, max_z = -0.5, 0.5
+
+dim = 3 # Spatial dimension (should be either 2 or 3)
 
 final_time = 10.0 # Simulation time
-dt = 0.005; # Temporal step length (TODO: move to constants/setup, compute from ds)
+dt = 0.25; # Temporal step length (TODO: move to constants/setup, compute from ds)
 
 # Frank elastic constants
 K1 = 0.5; # Splay
@@ -42,8 +38,11 @@ domain_t, domain_x, domain_y, domain_z = np.meshgrid(t_axis, x_axis, y_axis, z_a
 
 # Discrete spacetime grid
 num_t, num_x, num_y, num_z = np.shape(domain_t)
-grid = np.meshgrid(np.arange(num_t), np.arange(num_x), np.arange(num_y), np.arange(num_z), indexing='ij')
-grid_t, grid_x, grid_y, grid_z = grid
+t_disc = np.arange(num_t)
+x_disc = np.arange(num_x)
+y_disc = np.arange(num_y)
+z_disc = np.arange(num_z)
+grid_t, grid_x, grid_y, grid_z = np.meshgrid(t_disc, x_disc, y_disc, z_disc, indexing='ij')
 
 # Initialize director and angular momentum fields
 nfield = np.zeros((num_t, num_x, num_y, num_z, 3))
@@ -61,31 +60,82 @@ wfield = np.zeros((num_t, num_x - 2, num_y - 2, num_z - 2, 3))
 ##         Operators         ##
 ###############################
 
-def diff_t(func, t):
-  return (func[t + 1] - func[t]) / dt
+def diff_t(func):
+  times = t_disc[:-1]
+  return (func[times + 1] - func[times]) / dt
 
-def mid_t(func, t):
-  return (func[t + 1] + func[t]) / 2
+def mid_t(func):
+  times = t_disc[:-1]
+  return (func[times + 1] + func[times]) / 2
 
-def diff_s(func, dir, s, kind='C'):
+def diff_s(func, dir, kind='C'):
+  xs = x_disc[1:-1]
+  ys = y_disc[1:-1]
+  zs = z_disc[1:-1]
+
   denom_mult = 2 if kind == 'C' else 1
   left_shift = 0 if kind == '-' else 1
   right_shift = 0 if kind == '+' else 1
 
   if dir == 0:
-    left = func[:,s + left_shift,:,:]
-    right = func[:,s - right_shift,:,:]
+    diff = func[:,xs + left_shift,:,:] - func[:,xs - right_shift,:,:]
   elif dir == 1:
-    left = func[:,:,s + left_shift,:]
-    right = func[:,:,s - right_shift,:]
+    diff = func[:,:,ys + left_shift,:] - func[:,:,ys - right_shift,:]
   elif dir == 2:
-    left = func[:,:,:,s + left_shift]
-    right = func[:,:,:,s - right_shift]
+    diff = func[:,:,:,zs + left_shift] - func[:,:,:,zs - right_shift]
 
-  return (left - right) / (denom_mult * ds)
+  return diff / (denom_mult * ds)
 
-# Implement F*(n) here (TODO)
+def f_star(n):
+  sum = np.zeros((num_t, num_x - 2, num_y - 2, num_z - 2, 3))
+  
+  for i in range(0, dim):
+    for j in range(0, dim):
+      for k in range(0, dim):
+        ni = n[:,:,:,:,i]
+        nj = n[:,:,:,:,j]
+        nk = n[:,:,:,:,k]
+
+        term_a = diff_s(diff_s(mid_t(nj, j), i))
+        term_b = diff_s(diff_s(mid_t(ni), j, '-'), j, '+')
+        term_c = diff_s(mid_t(nj) * nk * mid_t(diff_s(ni, k)))
+        term_d = mid_t(nj * diff_s(nk, j)) * diff_s(mid_t(nk), i)
+
+        sum += C1 * term_a + C2 * term_b + C3 * (term_c - term_d)
+
+  return sum
+
+def energy(n):
+  term_a = np.zeros(num_t)
+  term_b = np.zeros(num_t)
+  term_c = np.zeros(num_t)
+
+  for i in range(0, dim):
+    for j in range(0, dim):
+      print("Summing " + str(i) + ", " + str(j))
+      ni = n[:,:,:,:,i]
+      nj = n[:,:,:,:,i]
+
+      term_b += np.sum(diff_s(ni, j, '-'))**2
+      term_c += np.sum(nj * diff_s(ni, j))
+
+    term_a += np.sum(diff_s(ni, i))
+
+  term_a = term_a**2
+  term_c = term_c**2
+
+  return 0.5 * (C1 * term_a + C2 * term_b + C3 * term_c)
+
+print(energy(nfield)) # Takes way too long
 
 ###############################
 ##          Solvers          ##
 ###############################
+
+def w_solver(n, m):
+  # D_t w^{m,v} = F*(n)^{m,v} x n^{m+1/2,v}
+  dw = np.cross(f_star(n)[m,:,:,:], mid_t(n)[m,:,:,:])
+  return wfield[m,:,:,:] + dt * dw
+  
+
+# D_t n^{m,v} = n^{m+1/2,v} x w^{m+1/2,v}
