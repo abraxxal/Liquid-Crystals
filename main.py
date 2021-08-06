@@ -1,9 +1,17 @@
+# TODO:
+# - Main program loop (repeatedly running iterative solver)
+# - Set initial field values
+# - Error calculation
+# - Animation
+# - Documentation
+
 ###############################
 ##        Parameters         ##
 ###############################
 
 ds = 1/64; # Spatial step length
 dt = 0.1 * ds; # Temporal step length
+tolerance = 0.1 * ds**2 # Error tolerance for iterative solver
 
 # Spatial boundary values
 min_x, max_x = -0.5, 0.5
@@ -97,6 +105,15 @@ def make_constant_pair(array):
   return pair
 
 
+# TODO: Organize these
+
+# Unpaired component
+def component(array, i):
+  axis = len(np.shape(array)) - 1 # Dimension index should be the last index
+  return axial_array(array, axis, i)
+
+
+
 ###############################
 ##   Domain Initialization   ##
 ###############################
@@ -182,36 +199,69 @@ def energy(nfield):
 ##          Solvers          ##
 ###############################
 
+# wfield_pair is (w^m, w^{m,s})
+# nfield_old is n^m
+# returns n^{m,s+1}
+def n_solver(nfield_old, wfield_pair):
+  def q_matrix(w):
+    return np.matrix([[0, component(w, 2), -component(w, 1)], 
+                     [-component(w, 2), 0, component(w, 0)], 
+                     [component(w, 1), -component(w, 0), 0]])
+
+  def v_matrix(w):
+    norm = np.linalg.norm(w)
+    a = (dt / 2)**2 * norm**2
+    I = np.eye(dim, dim)
+    p = np.kron(w, w)
+
+    return 1/(1 + a) * ((1 - a) * I + (dt**2 / 2) * p + dt * q_matrix(w))
+
+  # n^{m,s+1} = V(wfield_pair.mid()) * n^m
+  return np.matmul(v_matrix(wfield_pair.mid()), nfield_old)
+
+# wfield_old is w^m
+# nfield_pair is (n^m, n^{m,s+1})
+# returns w^{m,s+1}
 def w_solver(wfield_old, nfield_pair):
   dw = np.cross(f_star(nfield_pair), nfield_pair.mid())
   return wfield_old + dt * dw
+
+# nfield_pair is n^m
+# wfield_pair is w^m
+# return n^{m+1} and w^{m+1}
+def iterative_solver(nfield_old, wfield_old):
+  def error(nfield_pair):
+    return energy(nfield_pair.new - nfield_pair.old)
+
+  iterations = 0
+
+  nfield_pair = make_constant_pair(nfield_old)
+  wfield_pair = make_constant_pair(wfield_old)
   
-def n_solver(nfield_old, wfield_old):
-  return None
+  while True:
+    print("Running iteration " + str(iterations))
 
-# D_t n^{m,v} = n^{m+1/2,v} x w^{m+1/2,v}
+    print("Computing n^{m," + str(iterations + 1) + "}")
+    nfield_pair.update(n_solver(nfield_pair.old, wfield_pair)) # Update (n^m, n^{m,s}) to (n^m, n^{m,s+1})
 
-# Things for meeting:
-# - Implement naive solver for n (needs the V matrix from section 4)
-# - Implement iterative solver
+    print("Computing w^{m," + str(iterations + 1) + "}")
+    wfield_pair.update(w_solver(wfield_pair.old, nfield_pair)) # Update (w^m, w^{m,s}) to (w^m, w^{m,s+1})
 
+    iterations += 1
+    if iterations >= 400 or error(nfield_pair) <= tolerance**2:
+      break
+
+  return nfield_pair.new, wfield_pair.new
+  
 ###############################
 ##   Field Initialization    ##
 ###############################
 
 # Initialize director and angular momentum fields
 field_shape = space_sizes + (dim,) # Shape of all relevant vector fields
-nfield = FieldPair(field_shape)
-wfield = FieldPair(field_shape)
-
-# Set initial values (TODO)
-# nfield[:,:,:,0,1] = 
-# nfield[:,:,:,1,1] = 
-# nfield[:,:,:,2,1] = 
-# wfield[:,:,:,0,1] = 
-# wfield[:,:,:,1,1] = 
-# wfield[:,:,:,2,1] = 
+nfield_initial = np.zeros(field_shape)
+wfield_initial = np.zeros(field_shape)
 
 start_time = time.time()
-wfield.update(w_solver(wfield.new, nfield))
+print(iterative_solver(nfield_initial, wfield_initial))
 print("--- %s seconds ---" % (time.time() - start_time))
