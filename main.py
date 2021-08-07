@@ -16,7 +16,7 @@ tolerance = 0.1 * ds**2 # Error tolerance for iterative solver
 # Spatial boundary values
 min_x, max_x = -0.5, 0.5
 min_y, max_y = -0.5, 0.5
-min_z, max_z = -0.5, 0.5
+min_z, max_z = -ds, ds
 
 dim = 3 # Spatial dimension (should be either 2 or 3)
 
@@ -100,19 +100,18 @@ class FieldPair:
 
 def make_constant_pair(array):
   pair = FieldPair(np.shape(array))
-  pair.old = array
-  pair.new = array
+  pair.old = array.copy()
+  pair.new = array.copy()
   return pair
-
-
-# TODO: Organize these
 
 # Unpaired component
 def component(array, i):
   axis = len(np.shape(array)) - 1 # Dimension index should be the last index
   return axial_array(array, axis, i)
 
-
+# Unpaired mid
+def mid(pair):
+  return FieldPair(None, pair).mid()
 
 ###############################
 ##   Domain Initialization   ##
@@ -142,9 +141,6 @@ space_sizes = (len(x_axis), len(y_axis), len(z_axis))
 ###############################
 ##    Discrete Operators     ##
 ###############################
-
-def mid(pair):
-  return FieldPair(None, pair).mid()
 
 def diff(func, axis, kind='C'):
   denom_mult = 2 if kind == 'C' else 1
@@ -181,8 +177,8 @@ def energy(nfield):
 
   for i in range(0, dim):
     for j in range(0, dim):
-      ni = nfield.component(i)
-      nj = nfield.component(j)
+      ni = component(nfield, i)
+      nj = component(nfield, j)
 
       term_b += np.sum(diff(ni, j, '-'))**2
       term_c += np.sum(nj * diff(ni, j))
@@ -204,20 +200,23 @@ def energy(nfield):
 # returns n^{m,s+1}
 def n_solver(nfield_old, wfield_pair):
   def q_matrix(w):
-    return np.matrix([[0, component(w, 2), -component(w, 1)], 
-                     [-component(w, 2), 0, component(w, 0)], 
-                     [component(w, 1), -component(w, 0), 0]])
+    return np.array([[np.zeros(space_sizes), component(w, 2), -component(w, 1)], 
+                     [-component(w, 2), np.zeros(space_sizes), component(w, 0)], 
+                     [component(w, 1), -component(w, 0), np.zeros(space_sizes)]])
 
   def v_matrix(w):
-    norm = np.linalg.norm(w)
-    a = (dt / 2)**2 * norm**2
-    I = np.eye(dim, dim)
-    p = np.kron(w, w)
+    a = (dt / 2)**2 * np.einsum("xyzi,xyzi->xyz", w, w) # dt^2/4 * |w|^2
+    identity_mat = np.zeros(space_sizes + (dim, dim))
+    identity_mat[:,:,:] = np.eye(dim, dim)
 
-    return 1/(1 + a) * ((1 - a) * I + (dt**2 / 2) * p + dt * q_matrix(w))
+    term1 = np.einsum("xyz,xyzij->xyzij", 1 - a, identity_mat) # (1 - a) * I
+    term2 = (dt**2 / 2) * np.einsum('xyzi,xyzj->xyzij', w, w) # (dt^2 / 2) * (w \otimes w)
+    term3 = np.einsum(",ijxyz->xyzij", dt, q_matrix(w)) # dt * Q(w)
+
+    return np.einsum("xyz,xyzij->xyzij", 1/(1 + a), term1 + term2 + term3) # 1/(1 + a) * sum
 
   # n^{m,s+1} = V(wfield_pair.mid()) * n^m
-  return np.matmul(v_matrix(wfield_pair.mid()), nfield_old)
+  return np.einsum("xyzij,xyzj->xyzi", v_matrix(wfield_pair.mid()), nfield_old)
 
 # wfield_old is w^m
 # nfield_pair is (n^m, n^{m,s+1})
@@ -231,7 +230,7 @@ def w_solver(wfield_old, nfield_pair):
 # return n^{m+1} and w^{m+1}
 def iterative_solver(nfield_old, wfield_old):
   def error(nfield_pair):
-    return energy(nfield_pair.new - nfield_pair.old)
+    return energy(nfield_pair.new) - energy(nfield_pair.old)
 
   iterations = 0
 
@@ -239,16 +238,20 @@ def iterative_solver(nfield_old, wfield_old):
   wfield_pair = make_constant_pair(wfield_old)
   
   while True:
-    print("Running iteration " + str(iterations))
-
-    print("Computing n^{m," + str(iterations + 1) + "}")
     nfield_pair.update(n_solver(nfield_pair.old, wfield_pair)) # Update (n^m, n^{m,s}) to (n^m, n^{m,s+1})
-
-    print("Computing w^{m," + str(iterations + 1) + "}")
     wfield_pair.update(w_solver(wfield_pair.old, nfield_pair)) # Update (w^m, w^{m,s}) to (w^m, w^{m,s+1})
 
+    err = error(nfield_pair)
+
+    import os
+    os.system("clear")
+    print("Iteration: " + str(iterations))
+    print("Error: " + str(err) + "\n\n")
+
     iterations += 1
-    if iterations >= 400 or error(nfield_pair) <= tolerance**2:
+
+    if iterations >= 400 or abs(err) <= tolerance**2 and (not iterations == 1):
+      print("Done! Error is " + str((abs(err) / (tolerance**2)) * 100) + "% of the tolerance, " + str(tolerance**2))
       break
 
   return nfield_pair.new, wfield_pair.new
@@ -263,5 +266,5 @@ nfield_initial = np.zeros(field_shape)
 wfield_initial = np.zeros(field_shape)
 
 start_time = time.time()
-print(iterative_solver(nfield_initial, wfield_initial))
+iterative_solver(nfield_initial, wfield_initial)
 print("--- %s seconds ---" % (time.time() - start_time))
