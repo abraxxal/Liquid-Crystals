@@ -1,9 +1,17 @@
-# TODO:
-# - Main program loop (repeatedly running iterative solver)
-# - Set initial field values
-# - Error calculation
-# - Animation
+# TODO (main.py):
+# - Compute error (stopping condition in iterative_solver) properly
+# - Rewrite F* and energy with np.einsum
 # - Documentation
+# - Write frame data to a file instead of directly passing it to graphics
+# - Potentially add a damping factor and electric field
+
+# TODO (Graphics.py):
+# - Make the user compute positions so that we can use ds
+# - Do more matrix computations on the GPU (model can stay on CPU though)
+# - Use green to indicate angular momentum magnitude, maybe make the blue colors more prevalent as well?
+# - Add more advanced time control features, like slowdown, pause, play, as well as a time-controlled render loop
+# - See if Python has any easy libraries for displaying text with OpenGL (for on-screen data)
+# - Maybe add a light source for fun?
 
 ###############################
 ##        Parameters         ##
@@ -16,7 +24,7 @@ tolerance = 0.1 * ds**2 # Error tolerance for iterative solver
 # Spatial boundary values
 min_x, max_x = -0.5, 0.5
 min_y, max_y = -0.5, 0.5
-min_z, max_z = -ds, ds
+min_z, max_z = -0, 0
 
 dim = 3 # Spatial dimension (should be either 2 or 3)
 
@@ -33,8 +41,11 @@ K3 = 0.5; # Bend
 ###############################
 
 import numpy as np
+from matplotlib import pyplot as plt
+import mpl_toolkits.mplot3d.axes3d as axes3d
+from matplotlib import animation
 import time
-
+from Graphics import *
 
 ###############################
 ##     Indexing Helpers      ##
@@ -142,14 +153,14 @@ space_sizes = (len(x_axis), len(y_axis), len(z_axis))
 ##    Discrete Operators     ##
 ###############################
 
-def diff(func, axis, kind='C'):
+def diff(axis, func, kind='C'):
   denom_mult = 2 if kind == 'C' else 1
   left = axial_array(func, axis, (space_indices[axis] + (0 if kind == '-' else 1)) % space_sizes[axis])
   right = axial_array(func, axis, (space_indices[axis] - (0 if kind == '+' else 1)) % space_sizes[axis])
 
   return (left - right) / (denom_mult * ds)
 
-def f_star(nfield):
+def f_star(nfield_pair):
   result = np.zeros(space_sizes + (dim,))
   
   for i in range(0, dim):
@@ -157,14 +168,14 @@ def f_star(nfield):
 
     for j in range(0, dim):
       for k in range(0, dim):
-        ni = nfield.component(i)
-        nj = nfield.component(j)
-        nk = nfield.component(k)
+        ni = nfield_pair.component(i)
+        nj = nfield_pair.component(j)
+        nk = nfield_pair.component(k)
 
-        term_a = diff(diff(mid(nj), j), i)
-        term_b = diff(diff(mid(ni), j, '-'), j, '+')
-        term_c = diff(mid(nj) * mid(nk * diff(ni, k)), j)
-        term_d = mid(nj * diff(nk, j)) * diff(mid(nk), i)
+        term_a = diff(i, diff(j, mid(nj)))
+        term_b = diff(j, diff(j, mid(ni), '-'), '+')
+        term_c = diff(j, mid(nj) * mid(nk * diff(k, ni)))
+        term_d = mid(nj * diff(j, nk)) * diff(i, mid(nk))
 
         sum += C1 * term_a + C2 * term_b + C3 * (term_c - term_d)
 
@@ -173,23 +184,23 @@ def f_star(nfield):
   return result
 
 def energy(nfield):
-  term_a, term_b, term_c = (0, 0, 0)
+  term_a, term_b, term_c = 0, 0, 0
 
   for i in range(0, dim):
     for j in range(0, dim):
       ni = component(nfield, i)
       nj = component(nfield, j)
 
-      term_b += np.sum(diff(ni, j, '-'))**2
-      term_c += np.sum(nj * diff(ni, j))
+      term_b += diff(j, ni, '-')**2
+      term_c += nj * diff(j, ni)
 
-    term_a += np.sum(diff(ni, i))
+    term_a += diff(i, ni)
 
   term_a = term_a**2
   term_c = term_c**2
 
-  return 0.5 * (C1 * term_a + C2 * term_b + C3 * term_c)
-
+  energy_field = 0.5 * (C1 * term_a + C2 * term_b + C3 * term_c)
+  return np.sum(energy_field)
 
 ###############################
 ##          Solvers          ##
@@ -230,7 +241,7 @@ def w_solver(wfield_old, nfield_pair):
 # return n^{m+1} and w^{m+1}
 def iterative_solver(nfield_old, wfield_old):
   def error(nfield_pair):
-    return energy(nfield_pair.new) - energy(nfield_pair.old)
+    return energy(nfield_pair.new - nfield_pair.old)
 
   iterations = 0
 
@@ -243,16 +254,10 @@ def iterative_solver(nfield_old, wfield_old):
 
     err = error(nfield_pair)
 
-    import os
-    os.system("clear")
-    print("Iteration: " + str(iterations))
-    print("Error: " + str(err) + "\n\n")
+    if iterations >= 400 or err <= 10 and (not iterations <= 10):
+      break
 
     iterations += 1
-
-    if iterations >= 400 or abs(err) <= tolerance**2 and (not iterations == 1):
-      print("Done! Error is " + str((abs(err) / (tolerance**2)) * 100) + "% of the tolerance, " + str(tolerance**2))
-      break
 
   return nfield_pair.new, wfield_pair.new
   
@@ -265,6 +270,48 @@ field_shape = space_sizes + (dim,) # Shape of all relevant vector fields
 nfield_initial = np.zeros(field_shape)
 wfield_initial = np.zeros(field_shape)
 
+# Set initial values of director field
+def af(r):
+  return (1 - 2*r)**4
+
+def rf(x,y):
+  return np.sqrt(x**2 + y**2)
+
+def denominatorf(x,y):
+  return rf(x,y)**2 + af(rf(x,y))**2
+
+x, y, z = np.meshgrid(x_axis, y_axis, z_axis, indexing='ij')
+
+nfield_initial[:,:,:,0] = 2 * (rf(x,y) <= 0.5) * x * af(rf(x,y)) / denominatorf(x,y)
+nfield_initial[:,:,:,1] = 2 * (rf(x,y) <= 0.5) * y * af(rf(x,y)) / denominatorf(x,y)
+nfield_initial[:,:,:,2] = (rf(x,y) <= 0.5) * (af(rf(x,y))**2 - rf(x,y)**2) / denominatorf(x,y) - (rf(x,y) > 0.5)
+
 start_time = time.time()
-iterative_solver(nfield_initial, wfield_initial)
-print("--- %s seconds ---" % (time.time() - start_time))
+
+frames = [(nfield_initial, wfield_initial)]
+for i in range(0, num_t):
+  print("Computing frame %i..." % i)
+  frames.append(iterative_solver(frames[i][0], frames[i][1]))
+
+print("Took %.2f seconds to compute %i frames. Launching graphics..." % (time.time() - start_time, num_t - 1))
+
+###############################
+##         Animation         ##
+###############################
+
+current_time = float(0)
+
+graphics = Graphics(800, 800, "Time: %.2f seconds" % current_time)
+graphics.start_rendering(frames[0])
+
+i = 0
+while graphics.window_is_open():
+  i += 1
+  current_time = (i % len(frames)) * dt
+  graphics.set_window_title("Time: %.2f seconds" % current_time)
+  
+  graphics.set_render_data(frames[i % len(frames)])
+  graphics.render()
+  time.sleep(0.01)
+
+graphics.stop_rendering()
