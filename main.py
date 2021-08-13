@@ -1,15 +1,20 @@
 # TODO (main.py):
+# - Schedule meeting
+# - Move to a non-rodent-infested repository (or kill the rats in this one) so we can share it with her
+# - Add progress bar with 'tqdm' package
 # - Compute error (stopping condition in iterative_solver) properly
 # - Write frame data to a file instead of directly passing it to graphics
-# - Potentially add a damping factor and electric field
+# - Python main function
+# - Add a damping factor (w_t = F(n) \times n - \alpha w)
+# - Add an electric field term
 
 # TODO (Graphics.py):
-# - Make the user compute positions so that we can use ds
-# - Do more matrix computations on the GPU (model can stay on CPU though)
+# - Make the user compute positions so that we can use ds (and don't interleave positions with the field data)
+# - Do more matrix computations on the CPU (model should stay on GPU though since it uses vertex attributes)
 # - Use green to indicate angular momentum magnitude, maybe make the blue colors more prevalent as well?
 # - Add more advanced time control features, like slowdown, pause, play, as well as a time-controlled render loop
 # - See if Python has any easy libraries for displaying text with OpenGL (for on-screen data)
-# - Maybe add a light source for fun?
+# - Add a light source for easier visualization
 
 ###############################
 ##        Parameters         ##
@@ -17,7 +22,7 @@
 
 ds = 1/64; # Spatial step length
 dt = 0.1 * ds; # Temporal step length
-tolerance = 0.1 * ds**2 # Error tolerance for iterative solver
+tolerance = 0.1 * ds**3 # Error tolerance for iterative solver
 
 # Spatial boundary values
 min_x, max_x = -0.5, 0.5
@@ -31,7 +36,7 @@ final_time = 1.0 # Simulation time
 # Frank elastic constants
 K1 = 0.5; # Splay
 K2 = 1.0; # Twist
-K3 = 0.5; # Bend
+K3 = 1.5; # Bend
 
 
 ###############################
@@ -264,10 +269,8 @@ def iterative_solver(nfield_old, wfield_old):
     nfield_pair.update(n_solver(nfield_pair.old, wfield_pair)) # Update (n^m, n^{m,s}) to (n^m, n^{m,s+1})
     wfield_pair.update(w_solver(wfield_pair.old, nfield_pair)) # Update (w^m, w^{m,s}) to (w^m, w^{m,s+1})
 
-    err = error(nfield_pair)
-
     # If too many iterations have occurred or error is low enough, stop iterating and return.
-    if iterations >= 400 or err <= 10 and (not iterations <= 1):
+    if iterations >= 400 or error(nfield_pair) <= 5 and (not iterations <= 1):
       break
 
     iterations += 1
@@ -275,62 +278,88 @@ def iterative_solver(nfield_old, wfield_old):
   return nfield_pair.new, wfield_pair.new
   
 ###############################
-##   Field Initialization    ##
+##      Main Simulation      ##
 ###############################
 
-# Initialize director and angular momentum fields
-field_shape = space_sizes + (dim,) # Shape of all relevant vector fields
-nfield_initial = np.zeros(field_shape)
-wfield_initial = np.zeros(field_shape)
+def compute_simulation_frames(initial_field=None):
+  # Initialize director and angular momentum fields
+  field_shape = space_sizes + (dim,) # Shape of all relevant vector fields
+  nfield_initial = np.zeros(field_shape)
+  wfield_initial = np.zeros(field_shape)
 
-# Set initial values of director field
-def af(r):
-  return (1 - 2*r)**4
+  # Set initial values of director field
+  if initial_field is None:
+    def af(r):
+      return (1 - 2*r)**4
 
-def rf(x,y):
-  return np.sqrt(x**2 + y**2)
+    def rf(x,y):
+      return np.sqrt(x**2 + y**2)
 
-def denominatorf(x,y):
-  return rf(x,y)**2 + af(rf(x,y))**2
+    def denominatorf(x,y):
+      return rf(x,y)**2 + af(rf(x,y))**2
 
-x, y, z = np.meshgrid(x_axis, y_axis, z_axis, indexing='ij')
+    x, y, z = np.meshgrid(x_axis, y_axis, z_axis, indexing='ij')
 
-nfield_initial[:,:,:,0] = 2 * (rf(x,y) <= 0.5) * x * af(rf(x,y)) / denominatorf(x,y)
-nfield_initial[:,:,:,1] = 2 * (rf(x,y) <= 0.5) * y * af(rf(x,y)) / denominatorf(x,y)
-nfield_initial[:,:,:,2] = (rf(x,y) <= 0.5) * (af(rf(x,y))**2 - rf(x,y)**2) / denominatorf(x,y) - (rf(x,y) > 0.5)
+    def func(x, y, z):
+      return (2 * (rf(x,y) <= 0.5) * x * af(rf(x,y)) / denominatorf(x,y),
+              2 * (rf(x,y) <= 0.5) * y * af(rf(x,y)) / denominatorf(x,y),
+              (rf(x,y) <= 0.5) * (af(rf(x,y))**2 - rf(x,y)**2) / denominatorf(x,y) - (rf(x,y) > 0.5))
+    
+    initial_field = func
 
+  nfield_initial[:,:,:,0], nfield_initial[:,:,:,1], nfield_initial[:,:,:,2] = initial_field(x, y, z)
 
-###############################
-##     Main Computation      ##
-###############################
+  start_time = time.time()
 
-start_time = time.time()
+  frames = [(nfield_initial, wfield_initial)]
+  for i in range(0, num_t):
+    print("Computing frame %i..." % i)
+    frames.append(iterative_solver(frames[i][0], frames[i][1]))
 
-frames = [(nfield_initial, wfield_initial)]
-for i in range(0, num_t):
-  print("Computing frame %i..." % i)
-  frames.append(iterative_solver(frames[i][0], frames[i][1]))
-
-print("Took %.2f seconds to compute %i frames. Launching graphics..." % (time.time() - start_time, num_t - 1))
-
-
-###############################
-##         Animation         ##
-###############################
-
-current_time = float(0)
-
-graphics = Graphics(800, 800, "Time: %.2f seconds" % current_time)
-graphics.start_rendering(frames[0])
-
-i = 0
-while graphics.window_is_open():
-  i += 1
-  current_time = (i % len(frames)) * dt
-  graphics.set_window_title("Time: %.2f seconds" % current_time)
+  print("Took %.2f seconds to compute %i frames" % (time.time() - start_time, num_t - 1))
   
-  graphics.set_render_data(frames[i % len(frames)])
-  graphics.render()
-  time.sleep(0.01)
+  return frames
 
-graphics.stop_rendering()
+###############################
+##        File Output        ##
+###############################
+
+def write_computation_results(filepath, frames):
+  print("Writing to " + filepath)
+  file = open(filepath, "w")
+
+  positions = []
+  num_x, num_y, num_z = space_sizes
+  for i in range(0, num_x):
+    for j in range(0, num_y):
+      for k in range(0, num_z):
+        positions.extend([x_axis[i], y_axis[j], z_axis[k]])
+
+  file.write(str(positions)[1:-1].replace(',', ''))
+
+  for f in range(0, len(frames)):
+    file.write('\n')
+
+    nfield, wfield = frames[f]
+    frame_data = []
+
+    for i in range(0, num_x):
+      for j in range(0, num_y):
+        for k in range(0, num_z):
+          n = nfield[i,j,k]
+          w = wfield[i,j,k]
+          frame_data.extend([n[0], n[1], n[2], w[0], w[1], w[2]])
+    
+    file.write(str(frame_data)[1:-1].replace(',', ''))
+
+  file.close()
+
+###############################
+##       Main Function       ##
+###############################
+
+# frames = compute_simulation_frames()
+# write_computation_results("outputs/frames.vfd", frames)
+
+graphics = Graphics(800, 800, "Time: 0.00 seconds")
+graphics.run("outputs/frames.vfd", dt)

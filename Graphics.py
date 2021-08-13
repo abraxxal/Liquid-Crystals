@@ -5,6 +5,7 @@ from OpenGL.GLUT import *
 from OpenGL.GLU import *
 import glm
 import glfw
+import time
 
 # Geometric data for a cube
 cube_vertices = np.array([
@@ -87,11 +88,6 @@ class Graphics:
       self.modelPitch += -y
       self.modelYaw += x;
 
-      if self.modelPitch > 89.0:
-          self.modelPitch = 89.0
-      if self.modelPitch < -89.0:
-          self.modelPitch = -89.0
-
       front = np.zeros(3)
       front[0] = np.cos(glm.radians(self.modelYaw)) * np.cos(glm.radians(self.modelPitch));
       front[1] = np.sin(glm.radians(self.modelPitch));
@@ -132,32 +128,18 @@ class Graphics:
     glfw.set_cursor_pos_callback(self.window, Graphics.__mouse_callback)
     glfw.set_scroll_callback(self.window, Graphics.__scroll_callback)
 
-  def __extract_instance_data(self, frame):
-    # Extract director field data from current frame and augment it with positions
-    nfield = frame[0]
-    num_x, num_y, num_z, _ = np.shape(nfield)
-    self.num_objects = num_x * num_y * num_z
+  def start_rendering(self, positions, initial_frame):
+    self.pos_offset = positions.nbytes
+    self.num_objects = int(len(positions) / 3)
 
-    instance_data = []
-    for i in range(0, num_x):
-      for j in range(0, num_y):
-        for k in range(0, num_z):
-          direction = nfield[i,j,k]
-          instance_data.extend(np.array([i - num_x / 2, j - num_y / 2, k - num_z / 2]) * 1/16)
-          instance_data.extend(direction)
-
-    return np.array(instance_data, dtype=np.float32).flatten()
-
-  def start_rendering(self, initial_frame):
     # Populate cube buffer with vertices
     self.cube_vbo = glGenBuffers(1)
     glBindBuffer(GL_ARRAY_BUFFER, self.cube_vbo)
     glBufferData(GL_ARRAY_BUFFER, cube_vertices.nbytes, cube_vertices, GL_STATIC_DRAW)
     glBindBuffer(GL_ARRAY_BUFFER, 0)
 
-    instance_data = self.__extract_instance_data(initial_frame)
-
-    # Populate instance buffer with frame data (position and direction)
+    # Populate instance buffer with frame data (position, followed by interleaved direction and angular momentum)
+    instance_data = np.array(list(positions) + list(initial_frame), dtype=np.float32)
     self.instance_vbo = glGenBuffers(1)
     glBindBuffer(GL_ARRAY_BUFFER, self.instance_vbo)
     glBufferData(GL_ARRAY_BUFFER, instance_data.nbytes, instance_data, GL_DYNAMIC_DRAW)
@@ -182,26 +164,33 @@ class Graphics:
     self.uniformLocs["front"] = glGetUniformLocation(self.shader, "front")
     self.uniformLocs["zoom"] = glGetUniformLocation(self.shader, "zoom")
 
-    # Configure geometry vertex attribute
+    # Configure geometry attribute
     float_size = np.dtype(np.float32).itemsize
     glEnableVertexAttribArray(0)
     glBindBuffer(GL_ARRAY_BUFFER, self.cube_vbo)
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * float_size, ctypes.c_void_p(0))
     glBindBuffer(GL_ARRAY_BUFFER, 0)
 
-    # Configure position vertex attribute
+    # Configure position attribute
     glEnableVertexAttribArray(1)
     glBindBuffer(GL_ARRAY_BUFFER, self.instance_vbo)
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * float_size, ctypes.c_void_p(0));
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 3 * float_size, ctypes.c_void_p(0));
     glBindBuffer(GL_ARRAY_BUFFER, 0)
     glVertexAttribDivisor(1, 1)
 
-    # Configure direction vertex attribute
+    # Configure direction attribute
     glEnableVertexAttribArray(2)
     glBindBuffer(GL_ARRAY_BUFFER, self.instance_vbo)
-    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 6 * float_size, ctypes.c_void_p(3 * float_size))
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 6 * float_size, ctypes.c_void_p(self.pos_offset))
     glBindBuffer(GL_ARRAY_BUFFER, 0)
     glVertexAttribDivisor(2, 1)
+
+    # Configure momentum attribute
+    glEnableVertexAttribArray(3)
+    glBindBuffer(GL_ARRAY_BUFFER, self.instance_vbo)
+    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, 6 * float_size, ctypes.c_void_p(self.pos_offset + 3 * float_size))
+    glBindBuffer(GL_ARRAY_BUFFER, 0)
+    glVertexAttribDivisor(3, 1)
 
     # Done setting vertex array state
     glBindVertexArray(0)
@@ -223,13 +212,11 @@ class Graphics:
 
     glfw.show_window(self.window)
 
-  def set_render_data(self, frame):
+  def set_render_data(self, frame_data):
     glBindVertexArray(self.vertex_array)
 
-    instance_data = self.__extract_instance_data(frame)
-
     glBindBuffer(GL_ARRAY_BUFFER, self.instance_vbo)
-    glBufferSubData(GL_ARRAY_BUFFER, 0, instance_data.nbytes, instance_data)
+    glBufferSubData(GL_ARRAY_BUFFER, self.pos_offset, frame_data.nbytes, frame_data)
     glBindBuffer(GL_ARRAY_BUFFER, 0)
 
     glBindVertexArray(0)
@@ -271,3 +258,27 @@ class Graphics:
     glDeleteVertexArrays(1, self.vertex_array)
     glDeleteProgram(self.shader)
     glfw.destroy_window(self.window)
+
+  def run(self, vfd_filepath, seconds_per_frame):
+    file = open(vfd_filepath, 'r')
+    lines = file.readlines()
+    file.close()
+
+    def parse_array(str):
+      return np.array(list(map(float, str.split())), dtype=np.float32)
+
+    positions, *frames = list(map(parse_array, lines))
+    self.start_rendering(positions, frames[0])
+
+    start_time = time.time()
+    while self.window_is_open():
+      total_time = time.time() - start_time
+
+      i = int(total_time / seconds_per_frame)
+      glfw.set_window_title(self.window, "Time: %.2f Seconds" % total_time)
+      
+      self.set_render_data(frames[i % len(frames)])
+      self.render()
+      time.sleep(0.01)
+
+    self.stop_rendering()
