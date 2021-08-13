@@ -1,4 +1,3 @@
-import numpy as np
 from OpenGL.GL import *
 from OpenGL.GL import shaders
 from OpenGL.GLUT import *
@@ -6,6 +5,8 @@ from OpenGL.GLU import *
 import glm
 import glfw
 import time
+import numpy as np
+from tqdm import tqdm
 
 # Geometric data for a cube
 cube_vertices = np.array([
@@ -67,6 +68,9 @@ class Graphics:
   def __key_callback(window, key, _, action, mods):
     self = glfw.get_window_user_pointer(window)
 
+    if key == glfw.KEY_ESCAPE and action == glfw.RELEASE:
+      glfw.set_window_should_close(window, True)
+
     if key == glfw.KEY_SPACE and action == glfw.RELEASE:
       self.paused = not self.paused
 
@@ -112,7 +116,25 @@ class Graphics:
       front[2] = np.sin(glm.radians(self.modelYaw)) * np.cos(glm.radians(self.modelPitch));
       self.modelFront = front / np.linalg.norm(front);
 
-  def __init__(self, width, height, title):
+  def __init__(self, vfd_filepath, width, height, title):
+    # Before initializing graphics, read data from file
+    file = open(vfd_filepath, 'r')
+    lines = file.readlines()
+    file.close()
+
+    # Parses a space-separated string of floats into a NumPy array
+    def parse_array(str):
+      return np.array(str.split(), dtype=np.float32)
+
+    self.positions = parse_array(lines[0])
+
+    # Parse the input file into frame data
+    print("Reading from %s..." % vfd_filepath)
+    self.frames = []
+    for line in tqdm(lines[1:]):
+      self.frames.append(parse_array(line))
+      
+    # Initialize window system
     glfw.init()
 
     # Use OpenGL 3.3 core profile with forward compatibility
@@ -127,7 +149,8 @@ class Graphics:
     # Window should be invisible until ready for rendering
     glfw.window_hint(glfw.VISIBLE, glfw.FALSE)
 
-    # Create window
+    # Create window and initialize OpenGL context
+    print("Initializing window...")
     self.window = glfw.create_window(width, height, title, None, None)
     if not self.window:
       print(glfw.get_error())
@@ -242,9 +265,6 @@ class Graphics:
 
     glBindVertexArray(0)
 
-  def set_window_title(self, title):
-    glfw.set_window_title(self.window, title)
-
   def render(self):
     # Clear screen to background color
     glClearColor(0.1, 0.1, 0.1, 1)
@@ -270,25 +290,21 @@ class Graphics:
     glfw.swap_buffers(self.window)
 
   def stop_rendering(self):
+    print("Freeing graphics resources...")
     glDeleteVertexArrays(1, self.vertex_array)
+    glDeleteBuffers(1, self.cube_vbo)
+    glDeleteBuffers(1, self.instance_vbo)
     glDeleteProgram(self.shader)
     glfw.destroy_window(self.window)
 
-  def run(self, vfd_filepath, seconds_per_frame):
+  def run(self, seconds_per_frame):
     self.seconds_per_frame = seconds_per_frame
     self.total_time = float(0)
     time_scale = 0.05
     time_scale_increment = 0.001
 
-    file = open(vfd_filepath, 'r')
-    lines = file.readlines()
-    file.close()
-
-    def parse_array(str):
-      return np.array(list(map(float, str.split())), dtype=np.float32)
-
-    positions, *frames = list(map(parse_array, lines))
-    self.start_rendering(positions, frames[0])
+    print("Launching graphics...")
+    self.start_rendering(self.positions, self.frames[0])
 
     prev_time = time.time()
     old_frame_index = 0
@@ -317,8 +333,9 @@ class Graphics:
       # Set the renderer to use the new frame, if necessary
       if i != old_frame_index:
         old_frame_index = i
-        self.set_render_data(frames[(i + self.frame_offset) % len(frames)])
+        self.set_render_data(self.frames[i % len(self.frames)])
 
       self.render()
 
     self.stop_rendering()
+    print("Done!")

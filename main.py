@@ -1,18 +1,13 @@
 # TODO (main.py):
-# - Schedule meeting
 # - Move to a non-rodent-infested repository (or kill the rats in this one) so we can share it with her
-# - Add progress bar with 'tqdm' package
 # - Compute error (stopping condition in iterative_solver) properly
-# - Write frame data to a file instead of directly passing it to graphics
 # - Python main function
 # - Add a damping factor (w_t = F(n) \times n - \alpha w)
-# - Add an electric field term
+# - Schedule meeting for next week
+# - Maybe add an electric field term?
 
 # TODO (Graphics.py):
-# - Make the user compute positions so that we can use ds (and don't interleave positions with the field data)
 # - Do more matrix computations on the CPU (model should stay on GPU though since it uses vertex attributes)
-# - Use green to indicate angular momentum magnitude, maybe make the blue colors more prevalent as well?
-# - Add more advanced time control features, like slowdown, pause, play, as well as a time-controlled render loop
 # - See if Python has any easy libraries for displaying text with OpenGL (for on-screen data)
 # - Add a light source for easier visualization
 
@@ -44,11 +39,8 @@ K3 = 1.5; # Bend
 ###############################
 
 import numpy as np
-from matplotlib import pyplot as plt
-import mpl_toolkits.mplot3d.axes3d as axes3d
-from matplotlib import animation
-import time
 from Graphics import *
+from tqdm import tqdm
 
 ###############################
 ##     Indexing Helpers      ##
@@ -199,7 +191,7 @@ def f_star(nfield_pair):
   
   return result
 
-# Given a vectof field, returns the Frank-Oseen energy density field.
+# Given a vector field, returns the Frank-Oseen energy density field.
 def energy(nfield):
   term_a, term_b, term_c = 0, 0, 0
 
@@ -278,7 +270,7 @@ def iterative_solver(nfield_old, wfield_old):
   return nfield_pair.new, wfield_pair.new
   
 ###############################
-##      Main Simulation      ##
+##   Simulation and Output   ##
 ###############################
 
 def compute_simulation_frames(initial_field=None):
@@ -309,24 +301,17 @@ def compute_simulation_frames(initial_field=None):
 
   nfield_initial[:,:,:,0], nfield_initial[:,:,:,1], nfield_initial[:,:,:,2] = initial_field(x, y, z)
 
-  start_time = time.time()
+  print("Computing frames...")
 
   frames = [(nfield_initial, wfield_initial)]
-  for i in range(0, num_t):
-    print("Computing frame %i..." % i)
+  for i in tqdm(range(num_t)):
     frames.append(iterative_solver(frames[i][0], frames[i][1]))
-
-  print("Took %.2f seconds to compute %i frames" % (time.time() - start_time, num_t - 1))
   
   return frames
 
-###############################
-##        File Output        ##
-###############################
-
-def write_computation_results(filepath, frames):
-  print("Writing to " + filepath)
-  file = open(filepath, "w")
+def write_computation_results(vfd_filepath, frames):
+  print("Writing to %s..." % vfd_filepath)
+  file = open(vfd_filepath, "w")
 
   positions = []
   num_x, num_y, num_z = space_sizes
@@ -337,10 +322,9 @@ def write_computation_results(filepath, frames):
 
   file.write(str(positions)[1:-1].replace(',', ''))
 
-  for f in range(0, len(frames)):
+  for nfield, wfield in tqdm(frames):
     file.write('\n')
 
-    nfield, wfield = frames[f]
     frame_data = []
 
     for i in range(0, num_x):
@@ -361,5 +345,5 @@ def write_computation_results(filepath, frames):
 # frames = compute_simulation_frames()
 # write_computation_results("outputs/frames.vfd", frames)
 
-graphics = Graphics(800, 800, "Time: 0.00 seconds")
-graphics.run("outputs/frames.vfd", dt)
+graphics = Graphics("outputs/frames.vfd", 800, 800, "Time: 0.00 seconds")
+graphics.run(dt)
