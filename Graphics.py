@@ -64,6 +64,19 @@ cube_vertices = np.array([
 #  - Blue encodes how lateral the vector is (proximity to the xy-plane)
 #  - Green encodes the magnitude of the vector's angular momentum
 class Graphics:
+  def __key_callback(window, key, _, action, mods):
+    self = glfw.get_window_user_pointer(window)
+
+    if key == glfw.KEY_SPACE and action == glfw.RELEASE:
+      self.paused = not self.paused
+
+    if self.paused:
+      if key == glfw.KEY_RIGHT and (action == glfw.PRESS or action == glfw.REPEAT):
+        self.total_time += (10 if mods & glfw.MOD_SHIFT else 1) * self.seconds_per_frame
+
+      if key == glfw.KEY_LEFT and (action == glfw.PRESS or action == glfw.REPEAT):
+        self.total_time -= (10 if mods & glfw.MOD_SHIFT else 1) * self.seconds_per_frame
+
   def __mouse_callback(window, x, y):
     self = glfw.get_window_user_pointer(window)
     x, y = glfw.get_cursor_pos(window)
@@ -87,6 +100,11 @@ class Graphics:
       # Otherwise, rotate the model accordingly
       self.modelPitch += -y
       self.modelYaw += x;
+
+      if self.modelPitch > 89.5:
+          self.modelPitch = 89.5
+      if self.modelPitch < -89.5:
+          self.modelPitch = -89.5
 
       front = np.zeros(3)
       front[0] = np.cos(glm.radians(self.modelYaw)) * np.cos(glm.radians(self.modelPitch));
@@ -123,7 +141,10 @@ class Graphics:
     glEnable(GL_MULTISAMPLE) # Enable multisampling
 
     # Set input callbacks
+    self.paused = False
+    self.frame_offset = 0
     glfw.set_window_user_pointer(self.window, self)
+    glfw.set_key_callback(self.window, Graphics.__key_callback)
     glfw.set_input_mode(self.window, glfw.CURSOR, glfw.CURSOR_DISABLED);
     glfw.set_cursor_pos_callback(self.window, Graphics.__mouse_callback)
     glfw.set_scroll_callback(self.window, Graphics.__scroll_callback)
@@ -221,16 +242,10 @@ class Graphics:
 
     glBindVertexArray(0)
 
-  def window_is_open(self):
-    return not glfw.window_should_close(self.window)
-
   def set_window_title(self, title):
     glfw.set_window_title(self.window, title)
 
   def render(self):
-    # Check for any user inputs
-    glfw.poll_events()
-
     # Clear screen to background color
     glClearColor(0.1, 0.1, 0.1, 1)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
@@ -260,6 +275,11 @@ class Graphics:
     glfw.destroy_window(self.window)
 
   def run(self, vfd_filepath, seconds_per_frame):
+    self.seconds_per_frame = seconds_per_frame
+    self.total_time = float(0)
+    time_scale = 0.05
+    time_scale_increment = 0.001
+
     file = open(vfd_filepath, 'r')
     lines = file.readlines()
     file.close()
@@ -270,15 +290,35 @@ class Graphics:
     positions, *frames = list(map(parse_array, lines))
     self.start_rendering(positions, frames[0])
 
-    start_time = time.time()
-    while self.window_is_open():
-      total_time = time.time() - start_time
+    prev_time = time.time()
+    old_frame_index = 0
+    while not glfw.window_should_close(self.window):
+      # Check for any user inputs
+      glfw.poll_events()
 
-      i = int(total_time / seconds_per_frame)
-      glfw.set_window_title(self.window, "Time: %.2f Seconds" % total_time)
+      # Handle key input for time dilation
+      if glfw.get_key(self.window, glfw.KEY_DOWN):
+        time_scale -= time_scale_increment
+
+      if glfw.get_key(self.window, glfw.KEY_UP):
+        time_scale += time_scale_increment
       
-      self.set_render_data(frames[i % len(frames)])
+      # Update time info
+      curr_time = time.time()
+      delta_time = curr_time - prev_time
+      prev_time = curr_time
+      self.total_time += (not self.paused) * delta_time * time_scale
+      self.total_time %= 1.0
+
+      # Compute current frame index from current time
+      i = int(self.total_time / self.seconds_per_frame)
+      glfw.set_window_title(self.window, "Time: %.2f Seconds" % self.total_time)
+
+      # Set the renderer to use the new frame, if necessary
+      if i != old_frame_index:
+        old_frame_index = i
+        self.set_render_data(frames[(i + self.frame_offset) % len(frames)])
+
       self.render()
-      time.sleep(0.01)
 
     self.stop_rendering()
