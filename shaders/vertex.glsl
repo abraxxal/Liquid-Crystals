@@ -15,8 +15,10 @@ uniform mat4 proj;
 uniform vec3 front;
 uniform float zoom;
 
+// Model color to send to the fragment shader
 out vec4 color;
 
+// Implementation of glm's lookAt function, which orients a vector (located at "eye") to face towards a point in space ("at"). The "up" parameter is necessary for uniqueness; it represents where "eye" perceives the direction up to be.
 mat4 lookAt(vec3 eye, vec3 at, vec3 up)
 {
   vec3 zaxis = normalize(at - eye);    
@@ -33,6 +35,7 @@ mat4 lookAt(vec3 eye, vec3 at, vec3 up)
   ));
 }
 
+// Scale matrix
 mat4 scale(vec3 diag)
 {
   return mat4(
@@ -43,6 +46,7 @@ mat4 scale(vec3 diag)
   );
 }
 
+// Translation matrix
 mat4 translate(vec3 offset)
 {
   return mat4(
@@ -55,16 +59,17 @@ mat4 translate(vec3 offset)
 
 void main()
 {
-  mat4 model = mat4(1);
-  model *= lookAt(vec3(0), front, vec3(0, 1, 0));
-  model *= scale(vec3(zoom));
-  model *= translate(position);
-  model *= lookAt(vec3(0), direction, vec3(0, 1, 0));
-  model *= scale(vec3(0.01, 0.01, 0.05));
+  mat4 model = mat4(1); // Model transform matrix. Note the computations below should be read in reverse order
+  model *= lookAt(vec3(0), front, vec3(0, 1, 0)); // Orient the entire vector field to match user input
+  model *= scale(vec3(zoom)); // Now, the entire vector field by the zoom factor
+  model *= translate(position); // Then move it to its location in the field
+  model *= lookAt(vec3(0), direction, vec3(0, 1, 0)); // Then orient each model to face its specified direction
+  model *= scale(vec3(0.01, 0.01, 0.05)); // First, scale down the cube model and shape it into a rectangular prism
 
   gl_Position = proj * view * model * vec4(cube_vertex, 1);
 
   float z = direction.z;
   float pi = 3.141592;
+  // Specify colors (as seen in Graphics.py documentation)
   color = vec4(pow(sin(pi / 2 * z), 2), 0, pow(cos(pi / 2 * z), 2), 1);
 }

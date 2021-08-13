@@ -6,7 +6,7 @@ from OpenGL.GLU import *
 import glm
 import glfw
 
-
+# Geometric data for a cube
 cube_vertices = np.array([
   -0.5, -0.5, -0.5, 
   0.5, -0.5, -0.5,
@@ -51,17 +51,28 @@ cube_vertices = np.array([
   -0.5,  0.5, -0.5,
 ], dtype=np.float32)
 
-
+# The Graphics class handles the creation of a window and the rendering of a static vector field. Functionality for
+# animation is provided by dynamically updating the vector field. Basic user controls (zoom, pan, etc.) are also 
+# provided, as well as colors encoding the state of the vector field.
+#
+# User Controls:
+# Move the mouse to pan, scroll to rotate the model, and shift+scroll to zoom in and out.
+#
+# Color Key:
+#  - Red encodes how upright the vector is (proximity to the z-axis)
+#  - Blue encodes how lateral the vector is (proximity to the xy-plane)
+#  - Green encodes the magnitude of the vector's angular momentum
 class Graphics:
   def __mouse_callback(window, x, y):
     self = glfw.get_window_user_pointer(window)
     x, y = glfw.get_cursor_pos(window)
     width, height = glfw.get_window_size(window)
 
+    # Invert horizontal axis for some reason
     x = -(x - width / 2) / width
     y = (y - height / 2) / height
     
-    # Set camera location to cursor position
+    # Set camera location to cursor position and send the view matrix to the shader
     camera = glm.lookAt(np.array([x, y, 3.0]), np.array([x, y, 2.0]), np.array([0.0, 1.0, 0.0]))
     glUniformMatrix4fv(self.uniformLocs["view"], 1, GL_TRUE, np.array(camera).reshape(16))
 
@@ -69,8 +80,10 @@ class Graphics:
     self = glfw.get_window_user_pointer(window)
 
     if glfw.get_key(window, glfw.KEY_LEFT_SHIFT) == glfw.PRESS:
+      # If holding shift, zoom in
       self.modelZoom += 0.05 * y
     else:
+      # Otherwise, rotate the model accordingly
       self.modelPitch += -y
       self.modelYaw += x;
 
@@ -88,12 +101,19 @@ class Graphics:
   def __init__(self, width, height, title):
     glfw.init()
 
+    # Use OpenGL 3.3 core profile with forward compatibility
     glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
     glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
     glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
     glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, glfw.TRUE)
+
+    # Use 32 samples for multisampling (anti-aliasing)
     glfw.window_hint(glfw.SAMPLES, 32)
+
+    # Window should be invisible until ready for rendering
     glfw.window_hint(glfw.VISIBLE, glfw.FALSE)
+
+    # Create window
     self.window = glfw.create_window(width, height, title, None, None)
     if not self.window:
       print(glfw.get_error())
@@ -104,7 +124,7 @@ class Graphics:
     # Set global OpenGL state
     glViewport(0, 0, width, height)
     glEnable(GL_DEPTH_TEST)
-    glEnable(GL_MULTISAMPLE)
+    glEnable(GL_MULTISAMPLE) # Enable multisampling
 
     # Set input callbacks
     glfw.set_window_user_pointer(self.window, self)
@@ -148,8 +168,8 @@ class Graphics:
     glBindVertexArray(self.vertex_array)
 
     # Compile shaders
-    vertFile = open("vert.glsl", "r")
-    fragFile = open("frag.glsl", "r")
+    vertFile = open("shaders/vertex.glsl", "r")
+    fragFile = open("shaders/fragment.glsl", "r")
     vertShader = shaders.compileShader(vertFile.read(), GL_VERTEX_SHADER)
     fragShader = shaders.compileShader(fragFile.read(), GL_FRAGMENT_SHADER)
     self.shader = shaders.compileProgram(vertShader, fragShader)
@@ -221,24 +241,30 @@ class Graphics:
     glfw.set_window_title(self.window, title)
 
   def render(self):
+    # Check for any user inputs
     glfw.poll_events()
 
+    # Clear screen to background color
     glClearColor(0.1, 0.1, 0.1, 1)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-    glClear(GL_COLOR_BUFFER_BIT)
 
+    # Prepare shaders
     glUseProgram(self.shader)
 
+    # Send 3D projection matrix to shader
     proj = glm.perspective(glm.radians(45), 1, 0.1, 100)
     glUniformMatrix4fv(self.uniformLocs["proj"], 1, GL_TRUE, np.array(proj).reshape(16))
 
+    # Send model attributes to shader (rotation and zoom)
     glUniform3fv(self.uniformLocs["front"], 1, self.modelFront)
     glUniform1f(self.uniformLocs["zoom"], self.modelZoom)
 
+    # Render all vectors at once (to the hidden framebuffer)
     glBindVertexArray(self.vertex_array)
     glDrawArraysInstanced(GL_TRIANGLES, 0, 36, self.num_objects)
     glBindVertexArray(0)
 
+    # Swap the hidden framebuffer with the visible one, displaying the results of the above draw call
     glfw.swap_buffers(self.window)
 
   def stop_rendering(self):
