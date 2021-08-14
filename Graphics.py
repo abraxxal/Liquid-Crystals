@@ -324,7 +324,7 @@ class Graphics:
       delta_time = curr_time - prev_time
       prev_time = curr_time
       self.total_time += (not self.paused) * delta_time * time_scale
-      self.total_time %= 1.0
+      self.total_time %= len(self.frames) * seconds_per_frame
 
       # Compute current frame index from current time
       i = int(self.total_time / self.seconds_per_frame)

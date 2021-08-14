@@ -76,5 +76,5 @@ void main()
   float z = direction.z;
   float pi = 3.141592;
   // Specify colors (as seen in Graphics.py documentation)
-  color = vec4(pow(sin(pi / 2 * z), 2), regularize(length(momentum)), pow(cos(pi / 2 * z), 2), 1);
+  color = 0.75 * vec4(pow(sin(pi / 2 * z), 2), regularize(length(momentum)), pow(cos(pi / 2 * z), 2), 1);
 }

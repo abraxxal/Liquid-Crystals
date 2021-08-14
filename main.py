@@ -7,17 +7,22 @@
 # - Maybe add an electric field term?
 
 # TODO (Graphics.py):
-# - Do more matrix computations on the CPU (model should stay on GPU though since it uses vertex attributes)
+# - Play with colors to make tipping vectors a bit more obvious
 # - See if Python has any easy libraries for displaying text with OpenGL (for on-screen data)
-# - Add a light source for easier visualization
+# - Do more matrix computations on the CPU (model should stay on GPU though since it uses vertex attributes)
+# - Add a light source to add depth and the like
 
 ###############################
 ##        Parameters         ##
 ###############################
 
+# Discretization values
 ds = 1/64; # Spatial step length
 dt = 0.1 * ds; # Temporal step length
 tolerance = 0.1 * ds**3 # Error tolerance for iterative solver
+
+# Boundary conditions, either 'P' for "Periodic", 'N' for "Neumann", or 'D' for "Dirichlet"
+boundary_behavior = 'P'
 
 # Spatial boundary values
 min_x, max_x = -0.5, 0.5
@@ -26,13 +31,12 @@ min_z, max_z = -0, 0
 
 dim = 3 # Spatial dimension (should be either 2 or 3)
 
-final_time = 1.0 # Simulation time
+final_time = 5.0 # Simulation time
 
 # Frank elastic constants
 K1 = 0.5; # Splay
 K2 = 1.0; # Twist
 K3 = 1.5; # Bend
-
 
 ###############################
 ##          Imports          ##
@@ -53,6 +57,21 @@ def axial_index(axis, index):
 # See axial_index.
 def axial_array(array, axis, index):
   return array[axial_index(axis, index)]
+
+# Given a potentially out-of-bounds array of indices, returns a new in-bounds array of indices. The behavior of this
+# function depends on the boundary conditions. Periodic conditions wrap out-of-bounds indices back around to smaller
+# index values, as if indices were on a cirlce, whereas Neumann conditions clamp out-of-bounds indices to the bounds.
+def boundary_handler(index, array_length):
+  if boundary_behavior == 'P':
+    return index % array_length
+  elif boundary_behavior == 'N':
+    def clamp(x):
+      return min(max(x, 0), array_length - 1)
+
+    return np.vectorize(clamp)(index)
+  else:
+    print("Invalid boundary conditions, exiting.")
+    exit()
 
 
 ###############################
@@ -162,8 +181,8 @@ space_sizes = (len(x_axis), len(y_axis), len(z_axis))
 # Possible values for 'kind' are 'C' (central derivative), '+' (forwards derivative), and '-' (backwards derivative).
 def diff(axis, array, kind='C'):
   denom_mult = 2 if kind == 'C' else 1
-  left = axial_array(array, axis, (space_indices[axis] + (0 if kind == '-' else 1)) % space_sizes[axis])
-  right = axial_array(array, axis, (space_indices[axis] - (0 if kind == '+' else 1)) % space_sizes[axis])
+  left = axial_array(array, axis, boundary_handler(space_indices[axis] + (0 if kind == '-' else 1), space_sizes[axis]))
+  right = axial_array(array, axis, boundary_handler(space_indices[axis] - (0 if kind == '+' else 1), space_sizes[axis]))
 
   return (left - right) / (denom_mult * ds)
 
@@ -273,7 +292,7 @@ def iterative_solver(nfield_old, wfield_old):
 ##   Simulation and Output   ##
 ###############################
 
-def compute_simulation_frames(initial_field=None):
+def compute_simulation_frames(output_vfd_filepath, initial_field=None):
   # Initialize director and angular momentum fields
   field_shape = space_sizes + (dim,) # Shape of all relevant vector fields
   nfield_initial = np.zeros(field_shape)
@@ -301,18 +320,11 @@ def compute_simulation_frames(initial_field=None):
 
   nfield_initial[:,:,:,0], nfield_initial[:,:,:,1], nfield_initial[:,:,:,2] = initial_field(x, y, z)
 
-  print("Computing frames...")
+  # Begin computing frames and writing them to output file, one-by-one to avoid excessive memory usage
+  print("Computing frames and writing to %s..." % output_vfd_filepath)
+  file = open(output_vfd_filepath, "w")
 
-  frames = [(nfield_initial, wfield_initial)]
-  for i in tqdm(range(num_t)):
-    frames.append(iterative_solver(frames[i][0], frames[i][1]))
-  
-  return frames
-
-def write_computation_results(vfd_filepath, frames):
-  print("Writing to %s..." % vfd_filepath)
-  file = open(vfd_filepath, "w")
-
+  # First write the positions, as per the file specification
   positions = []
   num_x, num_y, num_z = space_sizes
   for i in range(0, num_x):
@@ -322,9 +334,11 @@ def write_computation_results(vfd_filepath, frames):
 
   file.write(str(positions)[1:-1].replace(',', ''))
 
-  for nfield, wfield in tqdm(frames):
+  # Next loop through all timesteps, computing and writing one frame per iteration
+  nfield, wfield = nfield_initial, wfield_initial
+  for f in tqdm(range(num_t + 1)):
+    # Write current frame to file
     file.write('\n')
-
     frame_data = []
 
     for i in range(0, num_x):
@@ -335,15 +349,18 @@ def write_computation_results(vfd_filepath, frames):
           frame_data.extend([n[0], n[1], n[2], w[0], w[1], w[2]])
     
     file.write(str(frame_data)[1:-1].replace(',', ''))
-
+    
+    # If not on the last frame, compute another frame
+    if f < num_t:
+      nfield, wfield = iterative_solver(nfield, wfield)
+  
   file.close()
 
 ###############################
 ##       Main Function       ##
 ###############################
 
-# frames = compute_simulation_frames()
-# write_computation_results("outputs/frames.vfd", frames)
+compute_simulation_frames("outputs/periodic.vfd")
 
-graphics = Graphics("outputs/frames.vfd", 800, 800, "Time: 0.00 seconds")
+graphics = Graphics("outputs/periodic.vfd", 800, 800, "Time: 0.00 seconds")
 graphics.run(dt)
