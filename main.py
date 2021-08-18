@@ -1,16 +1,14 @@
 # TODO (main.py):
 # - Move to a non-rodent-infested repository (or kill the rats in this one) so we can share it with her
-# - Compute error (stopping condition in iterative_solver) properly
+# - Write an abstract
 # - Python main function
-# - Add a damping factor (w_t = F(n) \times n - \alpha w)
-# - Schedule meeting for next week
-# - Maybe add an electric field term?
+# - Try fixing Neumann boundary conditions
 
 # TODO (Graphics.py):
-# - Play with colors to make tipping vectors a bit more obvious
 # - See if Python has any easy libraries for displaying text with OpenGL (for on-screen data)
-# - Do more matrix computations on the CPU (model should stay on GPU though since it uses vertex attributes)
-# - Add a light source to add depth and the like
+# - Add user controls for whether to use each RGB channel
+# - Add a light source to give a sense of depth (light source needs to be directly above; shadows are too much work)
+# - Add a way to render to a .gif file instead
 
 ###############################
 ##        Parameters         ##
@@ -19,10 +17,12 @@
 # Discretization values
 ds = 1/64; # Spatial step length
 dt = 0.1 * ds; # Temporal step length
-tolerance = 0.1 * ds**3 # Error tolerance for iterative solver
+tolerance = 1E-20 * ds**3 # Error tolerance for iterative solver
+alpha = 0
 
 # Boundary conditions, either 'P' for "Periodic", 'N' for "Neumann", or 'D' for "Dirichlet"
-boundary_behavior = 'P'
+boundary_behavior = 'N'
+output_filename = "outputs/neumann.vfd"
 
 # Spatial boundary values
 min_x, max_x = -0.5, 0.5
@@ -31,7 +31,7 @@ min_z, max_z = -0, 0
 
 dim = 3 # Spatial dimension (should be either 2 or 3)
 
-final_time = 5.0 # Simulation time
+final_time = 1.0 # Simulation time
 
 # Frank elastic constants
 K1 = 0.5; # Splay
@@ -44,7 +44,7 @@ K3 = 1.5; # Bend
 
 import numpy as np
 from Graphics import *
-from tqdm import tqdm
+from tqdm import tqdm, trange
 
 ###############################
 ##     Indexing Helpers      ##
@@ -186,15 +186,24 @@ def diff(axis, array, kind='C'):
 
   return (left - right) / (denom_mult * ds)
 
+def grad(field, kind='C'):
+  result = np.zeros(space_sizes + (dim, dim))
+  
+  for i in range(dim):
+    for j in range(dim):
+      result[:,:,:,i,j] = diff(i, component(field, j), kind)
+
+  return result
+
 # Given an OldNewPair of vector fields, returns the value F^*(n) from the paper.
 def f_star(nfield_pair):
   result = np.zeros(space_sizes + (dim,))
   
-  for i in range(0, dim):
+  for i in range(dim):
     sum = np.zeros(space_sizes)
 
-    for j in range(0, dim):
-      for k in range(0, dim):
+    for j in range(dim):
+      for k in range(dim):
         ni = nfield_pair.component(i)
         nj = nfield_pair.component(j)
         nk = nfield_pair.component(k)
@@ -214,8 +223,8 @@ def f_star(nfield_pair):
 def energy(nfield):
   term_a, term_b, term_c = 0, 0, 0
 
-  for i in range(0, dim):
-    for j in range(0, dim):
+  for i in range(dim):
+    for j in range(dim):
       ni = component(nfield, i)
       nj = component(nfield, j)
 
@@ -258,17 +267,32 @@ def n_solver(nfield_old, wfield_pair):
 # wfield_old is w^m
 # nfield_pair is (n^m, n^{m,s+1})
 # returns w^{m,s+1}
+# def w_solver(wfield_old, nfield_pair):
+#   dw = np.cross(f_star(nfield_pair), nfield_pair.mid())
+#   # (w^{m,s+1} - w^m)/dt = F*(n^m, n^{m,s+1}) x (n^m + n^{m,s+1})/2
+#   return wfield_old + dt * dw
+
+# wfield_old is w^m
+# nfield_pair is (n^m, n^{m,s+1})
+# returns w^{m,s+1}
 def w_solver(wfield_old, nfield_pair):
-  dw = np.cross(f_star(nfield_pair), nfield_pair.mid())
-  # (w^{m,s+1} - w^m)/dt = F*(n^m, n^{m,s+1}) x (n^m + n^{m,s+1})/2
-  return wfield_old + dt * dw
+  c = 1/(1/dt + alpha/2)
+  # w^{m,s+1} = w^m + c F*(n^m, n^{m,s+1}) x (n^m + n^{m,s+1})/2
+  return wfield_old + c * np.cross(f_star(nfield_pair), nfield_pair.mid())
 
 # nfield_pair is n^m
 # wfield_pair is w^m
 # return n^{m+1} and w^{m+1}
 def iterative_solver(nfield_old, wfield_old):
-  def error(nfield_pair):
-    return energy(nfield_pair.new - nfield_pair.old)
+  def error1(w_difference, n_difference):
+    gradient = grad(n_difference)
+    return np.einsum("xyzi,xyzi->", w_difference, w_difference) + np.einsum("xyzij,xyzij->", gradient, gradient)
+
+  def error2(nfield_new, nfield_old):
+    return energy(nfield_new - nfield_old)
+
+  def error3(nfield_pair):
+    return abs(energy(nfield_pair.new) - energy(nfield_pair.old))
 
   iterations = 0
 
@@ -277,11 +301,21 @@ def iterative_solver(nfield_old, wfield_old):
   wfield_pair = make_constant_pair(wfield_old)
   
   while True:
-    nfield_pair.update(n_solver(nfield_pair.old, wfield_pair)) # Update (n^m, n^{m,s}) to (n^m, n^{m,s+1})
-    wfield_pair.update(w_solver(wfield_pair.old, nfield_pair)) # Update (w^m, w^{m,s}) to (w^m, w^{m,s+1})
+    nfield_s = nfield_pair.new.copy()
+    wfield_s = wfield_pair.new.copy()
 
-    # If too many iterations have occurred or error is low enough, stop iterating and return.
-    if iterations >= 400 or error(nfield_pair) <= 5 and (not iterations <= 1):
+    nfield_pair.new = n_solver(nfield_pair.old, wfield_pair) # Update (n^m, n^{m,s}) to (n^m, n^{m,s+1})
+    wfield_pair.new = w_solver(wfield_pair.old, nfield_pair) # Update (w^m, w^{m,s}) to (w^m, w^{m,s+1})
+
+    errFromPaper = error1(wfield_pair.new - wfield_s, nfield_pair.new - nfield_s)
+    err = error2(nfield_pair.new, nfield_s)
+
+    if iterations >= 400:
+      print("Too many iterations; no convergence.")
+      break
+
+    if err <= tolerance and (not iterations <= 2):
+      print(iterations)
       break
 
     iterations += 1
@@ -327,32 +361,43 @@ def compute_simulation_frames(output_vfd_filepath, initial_field=None):
   # First write the positions, as per the file specification
   positions = []
   num_x, num_y, num_z = space_sizes
-  for i in range(0, num_x):
-    for j in range(0, num_y):
-      for k in range(0, num_z):
+  for i in range(num_x):
+    for j in range(num_y):
+      for k in range(num_z):
         positions.extend([x_axis[i], y_axis[j], z_axis[k]])
 
   file.write(str(positions)[1:-1].replace(',', ''))
 
   # Next loop through all timesteps, computing and writing one frame per iteration
   nfield, wfield = nfield_initial, wfield_initial
-  for f in tqdm(range(num_t + 1)):
-    # Write current frame to file
-    file.write('\n')
-    frame_data = []
+  energy_initial = energy(nfield)
+  with trange(num_t + 1) as progress_bar:
+    for f in progress_bar:
+      # Write current frame to file
+      file.write('\n')
+      frame_data = []
 
-    for i in range(0, num_x):
-      for j in range(0, num_y):
-        for k in range(0, num_z):
-          n = nfield[i,j,k]
-          w = wfield[i,j,k]
-          frame_data.extend([n[0], n[1], n[2], w[0], w[1], w[2]])
-    
-    file.write(str(frame_data)[1:-1].replace(',', ''))
-    
-    # If not on the last frame, compute another frame
-    if f < num_t:
-      nfield, wfield = iterative_solver(nfield, wfield)
+      for i in range(num_x):
+        for j in range(num_y):
+          for k in range(num_z):
+            n = nfield[i,j,k]
+            w = wfield[i,j,k]
+            frame_data.extend([n[0], n[1], n[2], w[0], w[1], w[2]])
+      
+      file.write(str(frame_data)[1:-1].replace(',', ''))
+      
+      # If not on the last frame, compute another frame
+      if f < num_t:
+        energy_old = energy(nfield)
+
+        nfield, wfield = iterative_solver(nfield, wfield)
+
+        energy_new = energy(nfield)
+        energy_difference = energy_new - energy_old
+        energy_average = (energy_new + energy_old) / 2
+        progress_bar.set_postfix(ediff=energy_difference, ratio=energy_difference/energy_average)
+      
+  print(energy(nfield) - energy_initial)
   
   file.close()
 
@@ -360,7 +405,7 @@ def compute_simulation_frames(output_vfd_filepath, initial_field=None):
 ##       Main Function       ##
 ###############################
 
-compute_simulation_frames("outputs/periodic.vfd")
+compute_simulation_frames(output_filename)
 
-graphics = Graphics("outputs/periodic.vfd", 800, 800, "Time: 0.00 seconds")
+graphics = Graphics(output_filename, 800, 800, "Time: 0.00 seconds")
 graphics.run(dt)
