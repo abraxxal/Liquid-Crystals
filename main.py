@@ -28,7 +28,7 @@ K2 = 1.0; # Twist
 K3 = 0.5; # Bend
 
 ###############################
-##          Imports          ##
+##    Imports and Logging     ##
 ###############################
 
 import numpy as np
@@ -37,6 +37,8 @@ from tqdm import trange
 import argparse
 import os.path
 import types
+
+verbose = False # Verbose mode prints more computation data as the simulation is running.
 
 ###############################
 ##     Indexing Helpers      ##
@@ -311,7 +313,8 @@ def iterative_solver(nfield_old, wfield_old):
     err2 = error2(nfield_pair.new, nfield_s)
 
     if iterations >= 400:
-      print("Too many iterations; no convergence.")
+      if verbose:
+        print("Too many iterations; no convergence.")
       break
 
     if err1 <= tolerance and (not iterations <= 2):
@@ -358,7 +361,6 @@ def compute_simulation_frames(output_vfd_filepath, initial_field=None):
   nfield_initial = np.einsum("xyz,xyzi->xyzi", inorm, nfield_initial)
 
   # Begin computing frames and writing them to output file, one-by-one to avoid excessive memory usage
-  print("Computing frames and writing to %s..." % output_vfd_filepath)
   file = open(output_vfd_filepath, "w")
 
   # First write the positions, as per the file specification
@@ -374,7 +376,11 @@ def compute_simulation_frames(output_vfd_filepath, initial_field=None):
   # Next loop through all timesteps, computing and writing one frame per iteration
   nfield, wfield = nfield_initial, wfield_initial
   energy_initial = energy(nfield)
+
+  total_energy_diff = 0
+  total_iterations = 0
   with trange(num_t + 1) as progress_bar:
+    progress_bar.set_description("Computing to " + output_vfd_filepath)
     for f in progress_bar:
       # Write current frame to file
       file.write('\n')
@@ -393,14 +399,23 @@ def compute_simulation_frames(output_vfd_filepath, initial_field=None):
       if f < num_t:
         energy_old = energy(nfield)
 
-        iters, nfield, wfield = iterative_solver(nfield, wfield)
+        iterations, nfield, wfield = iterative_solver(nfield, wfield)
 
         energy_new = energy(nfield)
         energy_difference = energy_new - energy_old
         energy_average = (energy_new + energy_old) / 2
-        progress_bar.set_postfix(iters=iters, ediff=energy_difference, ratio=energy_difference/energy_average)
+        progress_bar.set_postfix(iters=iterations, ediff=energy_difference, ratio=energy_difference/energy_average)
+
+        total_energy_diff += energy_difference
+        total_iterations += iterations
+
       
-  print(energy(nfield) - energy_initial)
+  if verbose:
+    print("Done computing. Printing performance info...")
+    print("Initial and final energy: %.2f --> %.2f" % (energy_initial, energy(nfield)))
+    print("Net energy change: %.2f" % (energy(nfield) - energy_initial))
+    print("Average energy difference per frame: %.2f" % (total_energy_diff / num_t))
+    print("Average solver iterations per frame: %.2f" % (total_iterations / num_t))
   
   file.close()
 
@@ -413,6 +428,8 @@ def create_parser():
                                   computed one by one and stored in file. Likewise, the renderer reads frames from \
                                   these files.")
 
+  parser.add_argument("--verbose", "-v", dest="verbose_mode", action="store_true", help="enable verbose mode, which \
+                      prints more detailed information as frames are computed")
   parser.add_argument("--file-prefix", "-fp", dest="data_path_prefix", action="store", nargs=1, type=str, 
                       metavar="PREFIX", help="specifies a prefix string for automatically generated file names")
   parser.add_argument("--file", "-f", dest="data_path", action="store", nargs=1, type=str, metavar="PATH",
@@ -457,7 +474,10 @@ def create_parser():
   return parser
 
 def set_custom_parameters(args):
+  global verbose
   global ds, dt, tolerance, alpha, boundary_behavior, min_x, max_x, min_y, max_y, min_z, max_z, final_time, K1, K2, K3
+
+  verbose = args.verbose_mode
 
   if (r := args.boundary_conditions) is not None: 
     boundary_behavior = r[0]
@@ -535,10 +555,8 @@ def get_initial_conditions(args):
 # - Try removing central derivatives
 # - Play with initial conditions
 
-# TODO (Cosmetics):
+# TODO (Presentation):
 # - Write an abstract
-# - Command line inputs (for specifying simulation parameters and initial conditions)
-# - Post-compute data dump (average iterations, average energy difference, etc)
 
 # TODO (Graphics):
 # - See if Python has any easy libraries for displaying text with OpenGL (for on-screen data)
@@ -570,5 +588,5 @@ if __name__ == "__main__":
       
       compute_simulation_frames(simulation_filename, initial_conditions)
 
-    graphics = Graphics(simulation_filename, 800, 800, "Time: 0.00 seconds")
+    graphics = Graphics(simulation_filename, 800, 800, "Time: 0.00 seconds", verbose)
     graphics.run(dt)

@@ -6,7 +6,7 @@ import glm
 import glfw
 import time
 import numpy as np
-from tqdm import tqdm
+from tqdm import trange
 
 # Geometric data for a cube
 cube_vertices = np.array([
@@ -116,7 +116,9 @@ class Graphics:
       front[2] = np.sin(glm.radians(self.modelYaw)) * np.cos(glm.radians(self.modelPitch));
       self.modelFront = front / np.linalg.norm(front);
 
-  def __init__(self, vfd_filepath, width, height, title):
+  def __init__(self, vfd_filepath, width, height, title, verbose=False):
+    self.verbose_mode = verbose
+
     # Before initializing graphics, read data from file
     file = open(vfd_filepath, 'r')
     lines = file.readlines()
@@ -128,11 +130,12 @@ class Graphics:
 
     self.positions = parse_array(lines[0])
 
-    # Parse the input file into frame data
-    print("Reading from %s..." % vfd_filepath)
+    # Parse the input file into frame datas
     self.frames = []
-    for line in tqdm(lines[1:]):
-      self.frames.append(parse_array(line))
+    with trange(1, len(lines)) as progress_bar:
+      progress_bar.set_description("Loading from " + vfd_filepath)
+      for f in progress_bar:
+        self.frames.append(parse_array(lines[f]))
       
     # Initialize window system
     glfw.init()
@@ -150,7 +153,9 @@ class Graphics:
     glfw.window_hint(glfw.VISIBLE, glfw.FALSE)
 
     # Create window and initialize OpenGL context
-    print("Initializing window...")
+    if self.verbose_mode:
+      print("Initializing window...")
+
     self.window = glfw.create_window(width, height, title, None, None)
     if not self.window:
       print(glfw.get_error())
@@ -290,7 +295,9 @@ class Graphics:
     glfw.swap_buffers(self.window)
 
   def stop_rendering(self):
-    print("Freeing graphics resources...")
+    if self.verbose_mode:
+      print("Freeing graphics resources...")
+
     glDeleteVertexArrays(1, self.vertex_array)
     glDeleteBuffers(1, self.cube_vbo)
     glDeleteBuffers(1, self.instance_vbo)
@@ -303,7 +310,9 @@ class Graphics:
     time_scale = 0.05
     time_scale_increment = 0.001
 
-    print("Launching graphics...")
+    if self.verbose_mode:
+      print("Launching graphics...")
+
     self.start_rendering(self.positions, self.frames[0])
 
     prev_time = time.time()
@@ -338,4 +347,5 @@ class Graphics:
       self.render()
 
     self.stop_rendering()
-    print("Done!")
+    if self.verbose_mode:
+      print("Done!")
