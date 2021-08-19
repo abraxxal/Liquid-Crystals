@@ -409,28 +409,50 @@ def compute_simulation_frames(output_vfd_filepath, initial_field=None):
 ###############################
 
 def create_parser():
-  parser = argparse.ArgumentParser(description="Simulate and render liquid crystal dynamics.")
+  parser = argparse.ArgumentParser(description="Simulate and render liquid crystal dynamics. Simulations frames are \
+                                  computed one by one and stored in file. Likewise, the renderer reads frames from \
+                                  these files.")
 
-  parser.add_argument("--file-prefix", "-fp", dest="data_path_prefix", action="store", nargs=1, type=str)
-  parser.add_argument("--file", "-f", dest="data_path", action="store", nargs=1, type=str)
-  parser.add_argument("--compute", "-c", dest="shouldCompute", action="store_true")
-  parser.add_argument("--display","-d", dest="shouldDisplay", action="store_true")
+  parser.add_argument("--file-prefix", "-fp", dest="data_path_prefix", action="store", nargs=1, type=str, 
+                      metavar="PREFIX", help="specifies a prefix string for automatically generated file names")
+  parser.add_argument("--file", "-f", dest="data_path", action="store", nargs=1, type=str, metavar="PATH",
+                      help="specifies the full file name (overwrites anything from --file-prefix and the file name \
+                            generator)")
+  parser.add_argument("--compute", "-c", dest="shouldCompute", action="store_true", help="run the simulator and output \
+                      the computed frames to the given file")
+  parser.add_argument("--display","-d", dest="shouldDisplay", action="store_true", help="display the interactive \
+                      viewing window (after any computations if --compute was specified) from the given file input.")
 
-  parser.add_argument("--time-step", "-dt", dest="time_step", action="store", nargs=1, type=float)
-  parser.add_argument("--space-step", "-ds", dest="space_step", action="store", nargs=1, type=float)
-  parser.add_argument("--tolerance", "-tol", dest="tolerance", action="store", nargs=1, type=float, default=[tolerance])
-  parser.add_argument("--damping-factor", "-dmp", dest="damping", action="store", nargs=1, type=float)
+  parser.add_argument("--time-step", "-dt", dest="time_step", action="store", nargs=1, type=float, metavar="DT",
+                      help="specify the timestep between each frame in the simulation")
+  parser.add_argument("--space-step", "-ds", dest="space_step", action="store", nargs=1, type=float, metavar="DS",
+                      help="specify the distance between consecutive molecules in the simulation")
+  parser.add_argument("--tolerance", "-tol", dest="tolerance", action="store", nargs=1, type=float, default=[tolerance],
+                      metavar="TOL", help="specify the error tolerance to be used in the iterative solver")
+  parser.add_argument("--damping-factor", "-dmp", dest="damping", action="store", nargs=1, type=float, metavar="ALPHA",
+                      help="specify the damping factor; the coefficient of n_t in the PDE")
 
   parser.add_argument("--boundary-conditions", "-bc", dest="boundary_conditions", action="store", nargs=1, type=str,
-                      choices=['P', 'N', 'D'], default=[boundary_behavior])
-  parser.add_argument("--initial-conditions", "-ic", dest="initial_conditions", action="store", nargs=2, type=str)
+                      choices=['P', 'N', 'D'], default=[boundary_behavior], help="specify the boundary conditions; \
+                      P for periodic, N for Neumann, D for Dirichlet")
+  parser.add_argument("--initial-conditions", "-ic", dest="initial_conditions", action="store", nargs=2, type=str,
+                      metavar=("MODULE", "FUNCTION"), help="specify a Python module (i.e. a filename without the .py) \
+                      and a function in that module to be used for the initial conditions. The function should take \
+                      a 3-tuple (x,y,z) to an output 3-tuple. Use NumPy for all math functions (cos, exp, pow, etc.)")
   
-  parser.add_argument("--x-bounds", dest="x_bounds", action="store", nargs=2, type=float, default=[min_x, max_x])
-  parser.add_argument("--y-bounds", dest="y_bounds", action="store", nargs=2, type=float, default=[min_y, max_y])
-  parser.add_argument("--z-bounds", dest="z_bounds", action="store", nargs=2, type=float, default=[min_z, max_z])
-  parser.add_argument("--sim-time", "-time", dest="end_time", action="store", nargs=1, type=float, default=[final_time])
+  parser.add_argument("--x-bounds", dest="x_bounds", action="store", nargs=2, type=float, default=[min_x, max_x],
+                      metavar=("XMIN", "XMAX"), help="specify the left and right extremes of the x-axis")
+  parser.add_argument("--y-bounds", dest="y_bounds", action="store", nargs=2, type=float, default=[min_y, max_y],
+                      metavar=("YMIN", "YMAX"), help="specify the left and right extremes of the y-axis")
+  parser.add_argument("--z-bounds", dest="z_bounds", action="store", nargs=2, type=float, default=[min_z, max_z],
+                      metavar=("ZMIN", "ZMAX"), help="specify the left and right extremes of the z-axis")
+  parser.add_argument("--sim-time", "-time", dest="end_time", action="store", nargs=1, type=float, default=[final_time],
+                      metavar="RUNTIME", help="specify the total amount of simulation time to compute (so the number \
+                      of frames is RUNTIME / DT)")
 
-  parser.add_argument("--elastic-constants", "-consts", dest="e_consts", action="store", nargs=3, type=float)
+  parser.add_argument("--elastic-constants", "-consts", dest="e_consts", action="store", nargs=3, type=float,
+                      metavar=("K1", "K2", "K3"), help="specify the Frank elastic constants, which control the \
+                      liquid crystal's elastic response to splay, twist, and bend respectively")
 
   return parser
 
@@ -447,7 +469,7 @@ def set_custom_parameters(args):
     filename += r[0] + "__"
 
   filename += boundary_behavior
-  filename += "-%.2fs" % final_time
+  filename += "-%.1fs" % final_time
 
   mods = []
 
@@ -476,20 +498,25 @@ def set_custom_parameters(args):
     K3 = r[2]
     mods.append("K=%.1f,%.1f,%.1f" % (K1, K2, K3))
 
-  attribs = ["3d" if len(z_axis) > 1 else "2d"]
+  attribs = ["3D"] if len(z_axis) > 1 else []
 
   if (r := args.damping) is not None:
     alpha = r[0]
     if alpha > 0.0001:
       attribs.append("dmp=%.0e" % alpha)
 
-  filename += str(attribs + mods).replace('\'', '').replace(' ', '')
+  attribs += mods
+
+  if len(attribs) > 0: filename += str(attribs + mods).replace('\'', '').replace(' ', '')
 
   if args.initial_conditions is not None:
-    module_name, func_name = args.initial_conditions
-    filename += "{%s.%s}" % (module_name, func_name)
+    _, func_name = args.initial_conditions
+    filename += "{%s}" % func_name
 
-  return "outputs/" + filename
+  if args.data_path is not None:
+    return args.data_path[0]
+  else:
+    return "outputs/" + filename + ".vfd"
 
 def get_initial_conditions(args):
   if args.initial_conditions is None:
