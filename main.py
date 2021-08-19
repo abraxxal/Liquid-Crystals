@@ -1,42 +1,31 @@
-# TODO (main.py):
-# - Move to a non-rodent-infested repository (or kill the rats in this one) so we can share it with her
-# - Write an abstract
-# - Python main function
-# - Try fixing Neumann boundary conditions
-
-# TODO (Graphics.py):
-# - See if Python has any easy libraries for displaying text with OpenGL (for on-screen data)
-# - Add user controls for whether to use each RGB channel
-# - Add a light source to give a sense of depth (light source needs to be directly above; shadows are too much work)
-# - Add a way to render to a .gif file instead
+#
+# Authors: Jennifer Jin, Nathan Glover
+#
 
 ###############################
-##        Parameters         ##
+##    Default Parameters     ##
 ###############################
 
 # Discretization values
 ds = 1/64; # Spatial step length
-dt = 0.1 * ds; # Temporal step length
+dt = 0.1 * ds # Temporal step length
 tolerance = 1E-20 * ds**3 # Error tolerance for iterative solver
-alpha = 0
+alpha = 0.0 # Damping factor (coefficient of D_t n)
 
 # Boundary conditions, either 'P' for "Periodic", 'N' for "Neumann", or 'D' for "Dirichlet"
-boundary_behavior = 'N'
-output_filename = "outputs/neumann.vfd"
+boundary_behavior = 'P'
 
 # Spatial boundary values
 min_x, max_x = -0.5, 0.5
 min_y, max_y = -0.5, 0.5
 min_z, max_z = -0, 0
 
-dim = 3 # Spatial dimension (should be either 2 or 3)
-
 final_time = 1.0 # Simulation time
 
 # Frank elastic constants
 K1 = 0.5; # Splay
 K2 = 1.0; # Twist
-K3 = 1.5; # Bend
+K3 = 0.5; # Bend
 
 ###############################
 ##          Imports          ##
@@ -44,7 +33,10 @@ K3 = 1.5; # Bend
 
 import numpy as np
 from Graphics import *
-from tqdm import tqdm, trange
+from tqdm import trange
+import argparse
+import os.path
+import types
 
 ###############################
 ##     Indexing Helpers      ##
@@ -152,25 +144,32 @@ def mid(pair):
 ##   Domain Initialization   ##
 ###############################
 
-# Constants from the paper
-C1 = K1 - K2
-C2 = K2
-C3 = K3 - K2
+dim = 3 # Simulation is always run in 3 dimensions, even if z-axis is a singleton
 
-# Discrete time axis
-t_axis = np.arange(0, final_time + dt, dt)
-num_t, = np.shape(t_axis)
-time_indices = np.arange(num_t)
+def init_computation_domain():
+  global dt, C1, C2, C3, t_axis, num_t, time_indices, x_axis, y_axis, z_axis, space_axes, space_indices, space_sizes
 
-# Discrete space axes
-x_axis = np.arange(min_x, max_x + ds, ds)
-y_axis = np.arange(min_y, max_y + ds, ds)
-z_axis = np.arange(min_z, max_z + ds, ds)
+  dt = 0.1 * ds
 
-# Axes, their associated indices, and the number of elements in each axis
-space_axes = (x_axis, y_axis, z_axis)
-space_indices = (np.arange(len(x_axis)), np.arange(len(y_axis)), np.arange(len(z_axis)))
-space_sizes = (len(x_axis), len(y_axis), len(z_axis))
+  # Constants from the paper
+  C1 = K1 - K2
+  C2 = K2
+  C3 = K3 - K2
+
+  # Discrete time axis
+  t_axis = np.arange(0, final_time + dt, dt)
+  num_t, = np.shape(t_axis)
+  time_indices = np.arange(num_t)
+
+  # Discrete space axes
+  x_axis = np.arange(min_x, max_x + ds, ds)
+  y_axis = np.arange(min_y, max_y + ds, ds)
+  z_axis = np.arange(min_z, max_z + ds, ds)
+
+  # Axes, their associated indices, and the number of elements in each axis
+  space_axes = (x_axis, y_axis, z_axis)
+  space_indices = (np.arange(len(x_axis)), np.arange(len(y_axis)), np.arange(len(z_axis)))
+  space_sizes = (len(x_axis), len(y_axis), len(z_axis))
 
 
 ###############################
@@ -186,6 +185,7 @@ def diff(axis, array, kind='C'):
 
   return (left - right) / (denom_mult * ds)
 
+# Returns the discrete Jacobian matrix (with specified direction; central, forwards, or backwards) of a vector field
 def grad(field, kind='C'):
   result = np.zeros(space_sizes + (dim, dim))
   
@@ -219,7 +219,7 @@ def f_star(nfield_pair):
   
   return result
 
-# Given a vector field, returns the Frank-Oseen energy density field.
+# Given a vector field, returns the corresponding Frank-Oseen energy density field.
 def energy(nfield):
   term_a, term_b, term_c = 0, 0, 0
 
@@ -307,20 +307,19 @@ def iterative_solver(nfield_old, wfield_old):
     nfield_pair.new = n_solver(nfield_pair.old, wfield_pair) # Update (n^m, n^{m,s}) to (n^m, n^{m,s+1})
     wfield_pair.new = w_solver(wfield_pair.old, nfield_pair) # Update (w^m, w^{m,s}) to (w^m, w^{m,s+1})
 
-    errFromPaper = error1(wfield_pair.new - wfield_s, nfield_pair.new - nfield_s)
-    err = error2(nfield_pair.new, nfield_s)
+    err1 = error1(wfield_pair.new - wfield_s, nfield_pair.new - nfield_s)
+    err2 = error2(nfield_pair.new, nfield_s)
 
     if iterations >= 400:
       print("Too many iterations; no convergence.")
       break
 
-    if err <= tolerance and (not iterations <= 2):
-      print(iterations)
+    if err1 <= tolerance and (not iterations <= 2):
       break
 
     iterations += 1
 
-  return nfield_pair.new, wfield_pair.new
+  return iterations, nfield_pair.new, wfield_pair.new
   
 ###############################
 ##   Simulation and Output   ##
@@ -331,6 +330,8 @@ def compute_simulation_frames(output_vfd_filepath, initial_field=None):
   field_shape = space_sizes + (dim,) # Shape of all relevant vector fields
   nfield_initial = np.zeros(field_shape)
   wfield_initial = np.zeros(field_shape)
+
+  x, y, z = np.meshgrid(x_axis, y_axis, z_axis, indexing='ij')
 
   # Set initial values of director field
   if initial_field is None:
@@ -343,8 +344,6 @@ def compute_simulation_frames(output_vfd_filepath, initial_field=None):
     def denominatorf(x,y):
       return rf(x,y)**2 + af(rf(x,y))**2
 
-    x, y, z = np.meshgrid(x_axis, y_axis, z_axis, indexing='ij')
-
     def func(x, y, z):
       return (2 * (rf(x,y) <= 0.5) * x * af(rf(x,y)) / denominatorf(x,y),
               2 * (rf(x,y) <= 0.5) * y * af(rf(x,y)) / denominatorf(x,y),
@@ -353,6 +352,10 @@ def compute_simulation_frames(output_vfd_filepath, initial_field=None):
     initial_field = func
 
   nfield_initial[:,:,:,0], nfield_initial[:,:,:,1], nfield_initial[:,:,:,2] = initial_field(x, y, z)
+
+  # Make sure that the field is normalized everywhere
+  inorm = 1 / np.sqrt(np.einsum("xyzi,xyzi->xyz", nfield_initial, nfield_initial))
+  nfield_initial = np.einsum("xyz,xyzi->xyzi", inorm, nfield_initial)
 
   # Begin computing frames and writing them to output file, one-by-one to avoid excessive memory usage
   print("Computing frames and writing to %s..." % output_vfd_filepath)
@@ -390,22 +393,155 @@ def compute_simulation_frames(output_vfd_filepath, initial_field=None):
       if f < num_t:
         energy_old = energy(nfield)
 
-        nfield, wfield = iterative_solver(nfield, wfield)
+        iters, nfield, wfield = iterative_solver(nfield, wfield)
 
         energy_new = energy(nfield)
         energy_difference = energy_new - energy_old
         energy_average = (energy_new + energy_old) / 2
-        progress_bar.set_postfix(ediff=energy_difference, ratio=energy_difference/energy_average)
+        progress_bar.set_postfix(iters=iters, ediff=energy_difference, ratio=energy_difference/energy_average)
       
   print(energy(nfield) - energy_initial)
   
   file.close()
 
 ###############################
-##       Main Function       ##
+##   Handle Terminal Inputs  ##
 ###############################
 
-compute_simulation_frames(output_filename)
+def create_parser():
+  parser = argparse.ArgumentParser(description="Simulate and render liquid crystal dynamics.")
 
-graphics = Graphics(output_filename, 800, 800, "Time: 0.00 seconds")
-graphics.run(dt)
+  parser.add_argument("--file-prefix", "-fp", dest="data_path_prefix", action="store", nargs=1, type=str)
+  parser.add_argument("--file", "-f", dest="data_path", action="store", nargs=1, type=str)
+  parser.add_argument("--compute", "-c", dest="shouldCompute", action="store_true")
+  parser.add_argument("--display","-d", dest="shouldDisplay", action="store_true")
+
+  parser.add_argument("--time-step", "-dt", dest="time_step", action="store", nargs=1, type=float)
+  parser.add_argument("--space-step", "-ds", dest="space_step", action="store", nargs=1, type=float)
+  parser.add_argument("--tolerance", "-tol", dest="tolerance", action="store", nargs=1, type=float, default=[tolerance])
+  parser.add_argument("--damping-factor", "-dmp", dest="damping", action="store", nargs=1, type=float)
+
+  parser.add_argument("--boundary-conditions", "-bc", dest="boundary_conditions", action="store", nargs=1, type=str,
+                      choices=['P', 'N', 'D'], default=[boundary_behavior])
+  parser.add_argument("--initial-conditions", "-ic", dest="initial_conditions", action="store", nargs=2, type=str)
+  
+  parser.add_argument("--x-bounds", dest="x_bounds", action="store", nargs=2, type=float, default=[min_x, max_x])
+  parser.add_argument("--y-bounds", dest="y_bounds", action="store", nargs=2, type=float, default=[min_y, max_y])
+  parser.add_argument("--z-bounds", dest="z_bounds", action="store", nargs=2, type=float, default=[min_z, max_z])
+  parser.add_argument("--sim-time", "-time", dest="end_time", action="store", nargs=1, type=float, default=[final_time])
+
+  parser.add_argument("--elastic-constants", "-consts", dest="e_consts", action="store", nargs=3, type=float)
+
+  return parser
+
+def set_custom_parameters(args):
+  global ds, dt, tolerance, alpha, boundary_behavior, min_x, max_x, min_y, max_y, min_z, max_z, final_time, K1, K2, K3
+
+  if (r := args.boundary_conditions) is not None: 
+    boundary_behavior = r[0]
+
+  final_time = args.end_time[0]
+
+  filename = ""
+  if (r := args.data_path_prefix) is not None:
+    filename += r[0] + "__"
+
+  filename += boundary_behavior
+  filename += "-%.2fs" % final_time
+
+  mods = []
+
+  if (r := args.space_step) is not None:
+    ds = r[0]
+    mods.append("ds=%.1e" % ds)
+
+  tolerance = args.tolerance
+
+  min_x = args.x_bounds[0]
+  max_x = args.x_bounds[1]
+  min_y = args.y_bounds[0]
+  max_y = args.y_bounds[1]
+  min_z = args.z_bounds[0]
+  max_z = args.z_bounds[1]
+
+  init_computation_domain()
+
+  if (r := args.time_step) is not None:
+    dt = r[0]
+    mods.append("dt=%.1e" % dt)
+
+  if (r := args.e_consts) is not None: 
+    K1 = r[0]
+    K2 = r[1]
+    K3 = r[2]
+    mods.append("K=%.1f,%.1f,%.1f" % (K1, K2, K3))
+
+  attribs = ["3d" if len(z_axis) > 1 else "2d"]
+
+  if (r := args.damping) is not None:
+    alpha = r[0]
+    if alpha > 0.0001:
+      attribs.append("dmp=%.0e" % alpha)
+
+  filename += str(attribs + mods).replace('\'', '').replace(' ', '')
+
+  if args.initial_conditions is not None:
+    module_name, func_name = args.initial_conditions
+    filename += "{%s.%s}" % (module_name, func_name)
+
+  return "outputs/" + filename
+
+def get_initial_conditions(args):
+  if args.initial_conditions is None:
+    return None
+  else:
+    module_name, func_name = args.initial_conditions
+
+    exec("import %s" % module_name)
+    code = "from %s import *\n" + "out = %s"
+    load_func = types.FunctionType(compile(code % (module_name, func_name), "temp.py", "exec"), globals())
+    load_func()
+    return out #type: ignore (tell PyLance not to worry about 'out' being unbound)
+  
+
+# TODO (Simulation):
+# - Try removing central derivatives
+# - Play with initial conditions
+
+# TODO (Cosmetics):
+# - Write an abstract
+# - Command line inputs (for specifying simulation parameters and initial conditions)
+# - Post-compute data dump (average iterations, average energy difference, etc)
+
+# TODO (Graphics):
+# - See if Python has any easy libraries for displaying text with OpenGL (for on-screen data)
+# - Add user controls for whether to use each RGB channel
+# - Add a light source to give a sense of depth (light source needs to be directly above; shadows are too much work)
+# - Add a way to render to a .gif file instead
+
+if __name__ == "__main__":
+  parser = create_parser()
+  args = parser.parse_args()
+  simulation_filename = set_custom_parameters(args)
+  initial_conditions = get_initial_conditions(args)
+  
+  if args.shouldCompute:
+    if os.path.isfile(simulation_filename):
+      print("File %s already exists, do you want to overwrite it? (yes - enter, no - n + enter)" % simulation_filename)
+      ans = input()
+      if ans == 'n':
+        exit()
+      
+    compute_simulation_frames(simulation_filename, initial_conditions)
+
+  if args.shouldDisplay:
+    if not os.path.isfile(simulation_filename):
+      print("File %s not found, would you like to compute it? (yes - enter, no - n + enter)" % simulation_filename)
+      ans = input()
+      if ans == 'n':
+        exit()
+      
+      compute_simulation_frames(simulation_filename, initial_conditions)
+
+    graphics = Graphics(simulation_filename, 800, 800, "Time: 0.00 seconds")
+    graphics.run(dt)
