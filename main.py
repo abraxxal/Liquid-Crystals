@@ -210,10 +210,15 @@ def f_star(nfield_pair):
         nj = nfield_pair.component(j)
         nk = nfield_pair.component(k)
 
-        term_a = diff(i, diff(j, mid(nj)))
+        # term_a = diff(i, diff(j, mid(nj)))
+        # term_b = diff(j, diff(j, mid(ni), '-'), '+')
+        # term_c = diff(j, mid(nj) * mid(nk * diff(k, ni)))
+        # term_d = mid(nj * diff(j, nk)) * diff(i, mid(nk))
+
+        term_a = diff(i, diff(j, mid(nj), '-'), '+')
         term_b = diff(j, diff(j, mid(ni), '-'), '+')
-        term_c = diff(j, mid(nj) * mid(nk * diff(k, ni)))
-        term_d = mid(nj * diff(j, nk)) * diff(i, mid(nk))
+        term_c = diff(j, mid(nj) * mid(nk * diff(k, ni, '-')), '+')
+        term_d = mid(nj * diff(j, nk, '-')) * diff(i, mid(nk), '-')
 
         sum += C1 * term_a + C2 * term_b + C3 * (term_c - term_d)
 
@@ -231,15 +236,18 @@ def energy(nfield):
       nj = component(nfield, j)
 
       term_b += diff(j, ni, '-')**2
-      term_c += nj * diff(j, ni)
 
-    term_a += diff(i, ni)
+      term_c += nj * diff(j, ni, '-')
+      # term_c += nj * diff(j, ni)
+
+    term_a += diff(i, ni, '-')
+    # term_a += diff(i, ni)
 
   term_a = term_a**2
   term_c = term_c**2
 
   energy_field = 0.5 * (C1 * term_a + C2 * term_b + C3 * term_c)
-  return np.sum(energy_field)
+  return np.einsum("xyz->", energy_field)
 
 ###############################
 ##          Solvers          ##
@@ -414,6 +422,7 @@ def compute_simulation_frames(output_vfd_filepath, initial_field=None):
     print("Done computing. Printing performance info...")
     print("Initial and final energy: %.2f --> %.2f" % (energy_initial, energy(nfield)))
     print("Net energy change: %.2f" % (energy(nfield) - energy_initial))
+    print("Percent energy change: %.3f" % ((energy(nfield) - energy_initial) / energy_initial * 100))
     print("Average energy difference per frame: %.2f" % (total_energy_diff / num_t))
     print("Average solver iterations per frame: %.2f" % (total_iterations / num_t))
   
@@ -549,20 +558,7 @@ def get_initial_conditions(args):
     load_func = types.FunctionType(compile(code % (module_name, func_name), "temp.py", "exec"), globals())
     load_func()
     return out #type: ignore (tell PyLance not to worry about 'out' being unbound)
-  
 
-# TODO (Simulation):
-# - Try removing central derivatives
-# - Play with initial conditions
-
-# TODO (Presentation):
-# - Write an abstract
-
-# TODO (Graphics):
-# - See if Python has any easy libraries for displaying text with OpenGL (for on-screen data)
-# - Add user controls for whether to use each RGB channel
-# - Add a light source to give a sense of depth (light source needs to be directly above; shadows are too much work)
-# - Add a way to render to a .gif file instead
 
 if __name__ == "__main__":
   parser = create_parser()
@@ -574,10 +570,8 @@ if __name__ == "__main__":
     if os.path.isfile(simulation_filename):
       print("File %s already exists, do you want to overwrite it? (yes - enter, no - n + enter)" % simulation_filename)
       ans = input()
-      if ans == 'n':
-        exit()
-      
-    compute_simulation_frames(simulation_filename, initial_conditions)
+      if ans != 'n':
+        compute_simulation_frames(simulation_filename, initial_conditions)
 
   if args.shouldDisplay:
     if not os.path.isfile(simulation_filename):

@@ -81,6 +81,24 @@ class Graphics:
       if key == glfw.KEY_LEFT and (action == glfw.PRESS or action == glfw.REPEAT):
         self.total_time -= (10 if mods & glfw.MOD_SHIFT else 1) * self.seconds_per_frame
 
+    channel_changed = False
+
+    if key == glfw.KEY_R and action == glfw.RELEASE:
+      self.red_channel = not self.red_channel
+      channel_changed = True
+
+    if key == glfw.KEY_G and action == glfw.RELEASE:
+      self.green_channel = not self.green_channel
+      channel_changed = True
+
+    if key == glfw.KEY_B and action == glfw.RELEASE:
+      self.blue_channel = not self.blue_channel
+      channel_changed = True
+
+    if channel_changed:
+      val = np.array([self.red_channel, self.green_channel, self.blue_channel], dtype=np.float32)
+      glUniform3fv(self.uniformLocs["colorControls"], 1, val)
+
   def __mouse_callback(window, x, y):
     self = glfw.get_window_user_pointer(window)
     x, y = glfw.get_cursor_pos(window)
@@ -102,7 +120,7 @@ class Graphics:
       self.modelZoom += 0.05 * y
     else:
       # Otherwise, rotate the model accordingly
-      self.modelPitch += -y
+      self.modelPitch += y
       self.modelYaw += x;
 
       if self.modelPitch > 89.5:
@@ -118,6 +136,9 @@ class Graphics:
 
   def __init__(self, vfd_filepath, width, height, title, verbose=False):
     self.verbose_mode = verbose
+    self.red_channel = True
+    self.green_channel = True
+    self.blue_channel = True
 
     # Before initializing graphics, read data from file
     file = open(vfd_filepath, 'r')
@@ -212,6 +233,8 @@ class Graphics:
     self.uniformLocs["view"] = glGetUniformLocation(self.shader, "view")
     self.uniformLocs["front"] = glGetUniformLocation(self.shader, "front")
     self.uniformLocs["zoom"] = glGetUniformLocation(self.shader, "zoom")
+    self.uniformLocs["colorControls"] = glGetUniformLocation(self.shader, "colorControls")
+    glUniform3fv(self.uniformLocs["colorControls"], 1, np.array([1,1,1], dtype=np.float32)) # Default value
 
     # Configure geometry attribute
     float_size = np.dtype(np.float32).itemsize
