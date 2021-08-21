@@ -525,7 +525,7 @@ def set_custom_parameters(args):
     K1 = r[0]
     K2 = r[1]
     K3 = r[2]
-    mods.append("K=%.1f,%.1f,%.1f" % (K1, K2, K3))
+    mods.append("K=(%.1f,%.1f,%.1f)" % (K1, K2, K3))
 
   attribs = ["3D"] if len(z_axis) > 1 else []
 
@@ -536,7 +536,7 @@ def set_custom_parameters(args):
 
   attribs += mods
 
-  if len(attribs) > 0: filename += str(attribs + mods).replace('\'', '').replace(' ', '')
+  if len(attribs) > 0: filename += str(attribs).replace('\'', '').replace(' ', '')
 
   if args.initial_conditions is not None:
     _, func_name = args.initial_conditions
