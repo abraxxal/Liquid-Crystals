@@ -1,11 +1,18 @@
+# Import all OpenGL functions, as well as a nice shader helper to compile and error check shaders
 from OpenGL.GL import *
 from OpenGL.GL import shaders
-from OpenGL.GLUT import *
-from OpenGL.GLU import *
+
+# Import glm for some basic matrix functions (particularly glm.lookAt for orienting the model and camera)
 import glm
+
+# Import glfw and time for handling OpenGL context creation, managing the window, and handling user input
 import glfw
 import time
+
+# Import NumPy, mainly for the array types it offers (which many PyOpenGL accept as input)
 import numpy as np
+
+# Import tqdm for nice command line progress bars, in this file for reading frame data from file
 from tqdm import trange
 
 # Geometric data for a cube (vertices and surface normals)
@@ -65,15 +72,19 @@ cube_vertices = np.array([
 #  - Blue encodes how lateral the vector is (proximity to the xy-plane)
 #  - Green encodes the magnitude of the vector's angular momentum
 class Graphics:
+  # Called whenever glfw detects keyboard input
   def __key_callback(window, key, _, action, mods):
     self = glfw.get_window_user_pointer(window)
 
+    # If escape is pressed, close the window and quit
     if key == glfw.KEY_ESCAPE and action == glfw.RELEASE:
       glfw.set_window_should_close(window, True)
 
+    # If space is pressed, pause the animation
     if key == glfw.KEY_SPACE and action == glfw.RELEASE:
       self.paused = not self.paused
 
+    # If animation is paused, use the left and right keys to go back and forth in time (hold shift to go faster)
     if self.paused:
       if key == glfw.KEY_RIGHT and (action == glfw.PRESS or action == glfw.REPEAT):
         self.total_time += (10 if mods & glfw.MOD_SHIFT else 1) * self.seconds_per_frame
@@ -83,6 +94,7 @@ class Graphics:
 
     channel_changed = False
 
+    # Use RGB keys to toggle the red, green, and blue colors in the animation respectively
     if key == glfw.KEY_R and action == glfw.RELEASE:
       self.red_channel = not self.red_channel
       channel_changed = True
@@ -99,6 +111,7 @@ class Graphics:
       val = np.array([self.red_channel, self.green_channel, self.blue_channel], dtype=np.float32)
       glUniform3fv(self.uniformLocs["colorControls"], 1, val)
 
+  # Called whenever glfw detects mouse input
   def __mouse_callback(window, x, y):
     self = glfw.get_window_user_pointer(window)
     x, y = glfw.get_cursor_pos(window)
@@ -113,6 +126,7 @@ class Graphics:
     glUniformMatrix4fv(self.uniformLocs["view"], 1, GL_TRUE, np.array(camera).reshape(16))
     glUniform3fv(self.uniformLocs["lightPos"], 1, np.array([x, y, 3.0]))
 
+  # Called whenever glfw detects scroll input
   def __scroll_callback(window, x, y):
     self = glfw.get_window_user_pointer(window)
 
@@ -120,15 +134,17 @@ class Graphics:
       # If holding shift, zoom in
       self.modelZoom += 0.05 * y
     else:
-      # Otherwise, rotate the model accordingly
+      # Otherwise, update the pitch and yaw
       self.modelPitch += y
       self.modelYaw += x;
 
+      # Clamp the pitch to prevent the model from flipping
       if self.modelPitch > 89.5:
           self.modelPitch = 89.5
       if self.modelPitch < -89.5:
           self.modelPitch = -89.5
 
+      # Rotate the model according to the new pitch and yaw
       front = np.zeros(3)
       front[0] = np.cos(glm.radians(self.modelYaw)) * np.cos(glm.radians(self.modelPitch));
       front[1] = np.sin(glm.radians(self.modelPitch));
@@ -137,6 +153,8 @@ class Graphics:
 
   def __init__(self, vfd_filepath, width, height, title, verbose=False):
     self.verbose_mode = verbose
+
+    # By default, all colors on
     self.red_channel = True
     self.green_channel = True
     self.blue_channel = True
@@ -200,8 +218,8 @@ class Graphics:
     glfw.set_scroll_callback(self.window, Graphics.__scroll_callback)
 
   def start_rendering(self, positions, initial_frame):
-    self.pos_offset = positions.nbytes
-    self.num_objects = int(len(positions) / 3)
+    self.pos_offset = positions.nbytes # Offset of position data in the buffer
+    self.num_objects = int(len(positions) / 3) # There are 3 floats per molecule (x, y, z coordinates)
 
     # Populate cube buffer with vertices
     self.cube_vbo = glGenBuffers(1)
@@ -296,6 +314,7 @@ class Graphics:
   def set_render_data(self, frame_data):
     glBindVertexArray(self.vertex_array)
 
+    # Update the new frame data (do not update the positions; those never change, just the directions and momentum)
     glBindBuffer(GL_ARRAY_BUFFER, self.instance_vbo)
     glBufferSubData(GL_ARRAY_BUFFER, self.pos_offset, frame_data.nbytes, frame_data)
     glBindBuffer(GL_ARRAY_BUFFER, 0)
@@ -337,10 +356,10 @@ class Graphics:
     glfw.destroy_window(self.window)
 
   def run(self, seconds_per_frame):
-    self.seconds_per_frame = seconds_per_frame
-    self.total_time = float(0)
-    time_scale = 0.05
-    time_scale_increment = 0.001
+    self.seconds_per_frame = seconds_per_frame # 1/fps, which is just dt in main.py
+    self.total_time = float(0) # Total time that the simulation has been running
+    time_scale = 0.05 # Slow down time by a factor of 1/20
+    time_scale_increment = 0.001 # Incrememnt the above speed factor by 0.001 every time up/down keys are pressed
 
     if self.verbose_mode:
       print("Launching graphics...")

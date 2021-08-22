@@ -28,15 +28,22 @@ K2 = 1.0; # Twist
 K3 = 0.5; # Bend
 
 ###############################
-##    Imports and Logging     ##
+##    Imports and Logging    ##
 ###############################
 
+# Import NumPy for all batch computing operations
 import numpy as np
+
+# Import custom made Graphics module and os.path for reading and rendering pre-computed frame data
 from Graphics import *
-from tqdm import trange
-import argparse
 import os.path
+
+# Import tqdm for nice command line progress bars, in this file for computing frame data
+from tqdm import trange
+
+# Import types and argparse for processing command line arguments
 import types
+import argparse
 
 verbose = False # Verbose mode prints more computation data as the simulation is running.
 
@@ -57,8 +64,10 @@ def axial_array(array, axis, index):
 # index values, as if indices were on a cirlce, whereas Neumann conditions clamp out-of-bounds indices to the bounds.
 def boundary_handler(index, array_length):
   if boundary_behavior == 'P':
+    # If periodic, wrap around
     return index % array_length
   elif boundary_behavior == 'N':
+    # If Neumann, clamp to range
     def clamp(x):
       return min(max(x, 0), array_length - 1)
 
@@ -141,6 +150,7 @@ def component(array, i):
 # Returns the arithmetic mean of a pair of values which haven't been wrapped into an OldNewPair instance
 def mid(pair):
   return OldNewPair(None, pair).mid()
+
 
 ###############################
 ##   Domain Initialization   ##
@@ -277,14 +287,6 @@ def n_solver(nfield_old, wfield_pair):
 # wfield_old is w^m
 # nfield_pair is (n^m, n^{m,s+1})
 # returns w^{m,s+1}
-# def w_solver(wfield_old, nfield_pair):
-#   dw = np.cross(f_star(nfield_pair), nfield_pair.mid())
-#   # (w^{m,s+1} - w^m)/dt = F*(n^m, n^{m,s+1}) x (n^m + n^{m,s+1})/2
-#   return wfield_old + dt * dw
-
-# wfield_old is w^m
-# nfield_pair is (n^m, n^{m,s+1})
-# returns w^{m,s+1}
 def w_solver(wfield_old, nfield_pair):
   c = 1/(1/dt + alpha/2)
   # w^{m,s+1} = w^m + c F*(n^m, n^{m,s+1}) x (n^m + n^{m,s+1})/2
@@ -294,15 +296,10 @@ def w_solver(wfield_old, nfield_pair):
 # wfield_pair is w^m
 # return n^{m+1} and w^{m+1}
 def iterative_solver(nfield_old, wfield_old):
-  def error1(w_difference, n_difference):
+  # Error from the paper
+  def error(w_difference, n_difference):
     gradient = grad(n_difference)
     return np.einsum("xyzi,xyzi->", w_difference, w_difference) + np.einsum("xyzij,xyzij->", gradient, gradient)
-
-  def error2(nfield_new, nfield_old):
-    return energy(nfield_new - nfield_old)
-
-  def error3(nfield_pair):
-    return abs(energy(nfield_pair.new) - energy(nfield_pair.old))
 
   iterations = 0
 
@@ -311,21 +308,22 @@ def iterative_solver(nfield_old, wfield_old):
   wfield_pair = make_constant_pair(wfield_old)
   
   while True:
-    nfield_s = nfield_pair.new.copy()
-    wfield_s = wfield_pair.new.copy()
+    nfield_s = nfield_pair.new
+    wfield_s = wfield_pair.new
 
     nfield_pair.new = n_solver(nfield_pair.old, wfield_pair) # Update (n^m, n^{m,s}) to (n^m, n^{m,s+1})
     wfield_pair.new = w_solver(wfield_pair.old, nfield_pair) # Update (w^m, w^{m,s}) to (w^m, w^{m,s+1})
 
-    err1 = error1(wfield_pair.new - wfield_s, nfield_pair.new - nfield_s)
-    err2 = error2(nfield_pair.new, nfield_s)
+    err = error(wfield_pair.new - wfield_s, nfield_pair.new - nfield_s)
 
+    # If too many iterations occur, there's a problem; notify the user that the simulation is failing
     if iterations >= 400:
       if verbose:
-        print("Too many iterations; no convergence.")
+        print("Too many iterations; no convergence. Final error: " + str(err))
       break
 
-    if err1 <= tolerance and (not iterations <= 2):
+    # If at leats 2 iterations have run and the error is low enough, return
+    if err <= tolerance and (not iterations <= 2):
       break
 
     iterations += 1
@@ -344,7 +342,7 @@ def compute_simulation_frames(output_vfd_filepath, initial_field=None):
 
   x, y, z = np.meshgrid(x_axis, y_axis, z_axis, indexing='ij')
 
-  # Set initial values of director field
+  # Set default initial values of director field
   if initial_field is None:
     def af(r):
       return (1 - 2*r)**4
@@ -390,10 +388,11 @@ def compute_simulation_frames(output_vfd_filepath, initial_field=None):
   with trange(num_t + 1) as progress_bar:
     progress_bar.set_description("Computing frames")
     for f in progress_bar:
-      # Write current frame to file
+      # Write a new line to separate old frame from this one
       file.write('\n')
       frame_data = []
 
+      # Add each point in space, and the field's direction/momentum at each point, to the frame data
       for i in range(num_x):
         for j in range(num_y):
           for k in range(num_z):
@@ -401,19 +400,24 @@ def compute_simulation_frames(output_vfd_filepath, initial_field=None):
             w = wfield[i,j,k]
             frame_data.extend([n[0], n[1], n[2], w[0], w[1], w[2]])
       
+      # Write the finished frame data to the file (remove commas and braces)
       file.write(str(frame_data)[1:-1].replace(',', ''))
       
       # If not on the last frame, compute another frame
       if f < num_t:
         energy_old = energy(nfield)
 
+        # New frame
         iterations, nfield, wfield = iterative_solver(nfield, wfield)
 
+        # Compute some per-frame info, such as number of iterative solver iterations and energy difference between
+        # this frame and the old one
         energy_new = energy(nfield)
         energy_difference = energy_new - energy_old
         energy_average = (energy_new + energy_old) / 2
         progress_bar.set_postfix(iters=iterations, ediff=energy_difference, ratio=energy_difference/energy_average)
 
+        # Keep track of total energy/iterations for post-compute averaging (see prints below)
         total_energy_diff += energy_difference
         total_iterations += iterations
 
@@ -432,6 +436,7 @@ def compute_simulation_frames(output_vfd_filepath, initial_field=None):
 ##   Handle Terminal Inputs  ##
 ###############################
 
+# Create a CLI parser object and return the user-specified command line arguments
 def create_parser():
   parser = argparse.ArgumentParser(description="Simulate and render liquid crystal dynamics. Simulations frames are \
                                   computed one by one and stored in file. Likewise, the renderer reads frames from \
@@ -482,6 +487,7 @@ def create_parser():
 
   return parser
 
+# Overwrite any default simulation parameters obtained from command line arguments (other than initial conditions)
 def set_custom_parameters(args):
   global verbose
   global ds, dt, tolerance, alpha, boundary_behavior, min_x, max_x, min_y, max_y, min_z, max_z, final_time, K1, K2, K3
@@ -494,20 +500,27 @@ def set_custom_parameters(args):
   final_time = args.end_time[0]
 
   filename = ""
+  # If there is one, begin the filename with a user-specified prefix
   if (r := args.data_path_prefix) is not None:
     filename += r[0] + "__"
 
+  # Begin the main part of the filename with the boundary behavior and runtime (for example, N-1.0s is Neumann boundary
+  # conditions running for 1 second)
   filename += boundary_behavior
   filename += "-%.1fs" % final_time
 
+  # List to store any additional filename modifiers
   mods = []
 
+  # If specified, overwrite the default mesh size
   if (r := args.space_step) is not None:
     ds = r[0]
     mods.append("ds=%.1e" % ds)
 
+  # Set the error tolerance for the iterative solver
   tolerance = args.tolerance
 
+  # Set the boundaries of the x, y, and z axes
   min_x = args.x_bounds[0]
   max_x = args.x_bounds[1]
   min_y = args.y_bounds[0]
@@ -515,38 +528,48 @@ def set_custom_parameters(args):
   min_z = args.z_bounds[0]
   max_z = args.z_bounds[1]
 
+  # Run this now to compute the default value of dt
   init_computation_domain()
 
+  # Overwrite the value of dt if the user specified
   if (r := args.time_step) is not None:
     dt = r[0]
     mods.append("dt=%.1e" % dt)
 
+  # If specified, overwrite the default Frank elastic constants
   if (r := args.e_consts) is not None: 
     K1 = r[0]
     K2 = r[1]
     K3 = r[2]
     mods.append("K=(%.1f,%.1f,%.1f)" % (K1, K2, K3))
 
+  # Attribs list for more fundamental simulation parameters (namely 3D and damping)
   attribs = ["3D"] if len(z_axis) > 1 else []
 
+  # If damping is nonzero, set alpha and add a damping attribute to the filename
   if (r := args.damping) is not None:
     alpha = r[0]
     if alpha > 0.0001:
       attribs.append("dmp=%.0e" % alpha)
 
+  # Add the modifiers to the filenames
   attribs += mods
 
+  # Add the list of modifiers to the filename, removing unnecessary quotes and spaces
   if len(attribs) > 0: filename += str(attribs).replace('\'', '').replace(' ', '')
 
+  # Finally, add the name of the initial condition function to the end of the filename
   if args.initial_conditions is not None:
     _, func_name = args.initial_conditions
     filename += "{%s}" % func_name
 
+  # If a filename was not specified by the user, use the one that's been created above
   if args.data_path is not None:
     return args.data_path[0]
   else:
     return "outputs/" + filename + ".vfd"
 
+# Overwrite default initial conditions if specified from command line arguments
 def get_initial_conditions(args):
   if args.initial_conditions is None:
     return None
@@ -566,6 +589,8 @@ if __name__ == "__main__":
   simulation_filename = set_custom_parameters(args)
   initial_conditions = get_initial_conditions(args)
   
+  # If the compute option is specified, compute with the given settings (if a file is found with these settings,
+  # ask if the user wants to use that rather than overwrite it)
   if args.shouldCompute:
     if os.path.isfile(simulation_filename):
       print("File %s already exists, do you want to overwrite it? (yes - enter, no - n + enter)" % simulation_filename)
@@ -573,6 +598,8 @@ if __name__ == "__main__":
       if ans != 'n':
         compute_simulation_frames(simulation_filename, initial_conditions)
 
+  # If the graphics option is specified, display graphics (if a file is not found with the given settings, ask if
+  # the user wants to compute a new data file with those settings)
   if args.shouldDisplay:
     if not os.path.isfile(simulation_filename):
       print("File %s not found, would you like to compute it? (yes - enter, no - n + enter)" % simulation_filename)

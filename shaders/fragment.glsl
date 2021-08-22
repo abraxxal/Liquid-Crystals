@@ -14,6 +14,7 @@ in vec3 fragPos;
 out vec4 fragColor;
 
 void main() {
+  // Lighting parameters
   vec3 lightColor = vec3(1, 1, 1);
   float ambientLightFactor = 0.2;
   float diffuseLightFactor = 1.0;

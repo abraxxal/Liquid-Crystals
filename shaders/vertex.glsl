@@ -17,6 +17,7 @@ uniform mat4 proj;
 uniform vec3 front;
 uniform float zoom;
 
+// A 1-0 vector representing whether to render each color channel (RGB)
 uniform vec3 colorControls;
 
 // Data to send to the fragment shader
@@ -56,9 +57,10 @@ mat4 lookAt(vec3 eye, vec3 at)
   vec3 xaxis = normalize(cross(zaxis, up));
   vec3 yaxis = cross(xaxis, zaxis);
 
+  // In the special case that zaxis faces straight up (creates a singular matrix if not handled separately)
   if (zaxis.x == 0 && zaxis.z == 0)
   {
-    if (zaxis.y < 0) // rotate 180 degrees
+    if (zaxis.y < 0)
       return transpose(mat4(
         vec4(1, 0, 0, -dot(xaxis, eye)),
         vec4(0, 0, -1, -dot(yaxis, eye)),
@@ -82,6 +84,7 @@ mat4 lookAt(vec3 eye, vec3 at)
   }
 }
 
+// Smush an unbounded value between 0 and 1
 float regularize(float x) {
   return 1.0 - 1.0 / (1.0 + pow(0.1 * x, 4));
 }
