@@ -388,7 +388,7 @@ def compute_simulation_frames(output_vfd_filepath, initial_field=None):
   total_energy_diff = 0
   total_iterations = 0
   with trange(num_t + 1) as progress_bar:
-    progress_bar.set_description("Computing to " + output_vfd_filepath)
+    progress_bar.set_description("Computing frames")
     for f in progress_bar:
       # Write current frame to file
       file.write('\n')

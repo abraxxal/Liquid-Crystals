@@ -2,11 +2,12 @@
 
 // Geometry data
 layout (location = 0) in vec3 cube_vertex;
+layout (location = 1) in vec3 cube_normal;
 
-// Particle data
-layout (location = 1) in vec3 position;
-layout (location = 2) in vec3 direction;
-layout (location = 3) in vec3 momentum;
+// Molecule data
+layout (location = 2) in vec3 position;
+layout (location = 3) in vec3 direction;
+layout (location = 4) in vec3 momentum;
 
 // World space transforms
 uniform mat4 view;
@@ -18,8 +19,10 @@ uniform float zoom;
 
 uniform vec3 colorControls;
 
-// Model color to send to the fragment shader
-out vec4 color;
+// Data to send to the fragment shader
+out vec3 color;
+out vec3 normal;
+out vec3 fragPos;
 
 // Scale matrix
 mat4 scale(vec3 diag)
@@ -92,11 +95,14 @@ void main()
   model *= lookAt(vec3(0), direction); // Then orient each model to face its specified direction
   model *= scale(vec3(1, 1, 10) / 200); // First, scale down the cube model and shape it into a rectangular prism
 
+  // Compute position and normal data
   gl_Position = proj * view * model * vec4(cube_vertex, 1);
+  fragPos = vec3(model * vec4(cube_vertex, 1));
+  normal = normalize(mat3(transpose(inverse(model))) * cube_normal);  
 
+  // Specify colors (as seen in Graphics.py documentation)
   float z = direction.z;
   float pi = 3.141592;
-  // Specify colors (as seen in Graphics.py documentation)
   vec3 rgb = vec3(pow(sin(pi / 2 * z), 2) / 3, regularize(length(momentum)) / 3, pow(cos(pi / 2 * z), 2) / 3);
-  color = vec4(rgb * colorControls, 1);
+  color = rgb * colorControls;
 }

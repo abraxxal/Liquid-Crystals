@@ -8,49 +8,49 @@ import time
 import numpy as np
 from tqdm import trange
 
-# Geometric data for a cube
+# Geometric data for a cube (vertices and surface normals)
 cube_vertices = np.array([
-  -0.5, -0.5, -0.5, 
-  0.5, -0.5, -0.5,
-  0.5,  0.5, -0.5,
-  0.5,  0.5, -0.5,
-  -0.5,  0.5, -0.5,
-  -0.5, -0.5, -0.5,
+  -0.5, -0.5, -0.5,  0.0,  0.0, -1.0,
+    0.5, -0.5, -0.5,  0.0,  0.0, -1.0, 
+    0.5,  0.5, -0.5,  0.0,  0.0, -1.0, 
+    0.5,  0.5, -0.5,  0.0,  0.0, -1.0, 
+  -0.5,  0.5, -0.5,  0.0,  0.0, -1.0, 
+  -0.5, -0.5, -0.5,  0.0,  0.0, -1.0, 
 
-  -0.5, -0.5,  0.5,
-  0.5, -0.5,  0.5,
-  0.5,  0.5,  0.5,
-  0.5,  0.5,  0.5,
-  -0.5,  0.5,  0.5,
-  -0.5, -0.5,  0.5,
+  -0.5, -0.5,  0.5,  0.0,  0.0, 1.0,
+    0.5, -0.5,  0.5,  0.0,  0.0, 1.0,
+    0.5,  0.5,  0.5,  0.0,  0.0, 1.0,
+    0.5,  0.5,  0.5,  0.0,  0.0, 1.0,
+  -0.5,  0.5,  0.5,  0.0,  0.0, 1.0,
+  -0.5, -0.5,  0.5,  0.0,  0.0, 1.0,
 
-  -0.5,  0.5,  0.5,
-  -0.5,  0.5, -0.5,
-  -0.5, -0.5, -0.5,
-  -0.5, -0.5, -0.5,
-  -0.5, -0.5,  0.5,
-  -0.5,  0.5,  0.5,
+  -0.5,  0.5,  0.5, -1.0,  0.0,  0.0,
+  -0.5,  0.5, -0.5, -1.0,  0.0,  0.0,
+  -0.5, -0.5, -0.5, -1.0,  0.0,  0.0,
+  -0.5, -0.5, -0.5, -1.0,  0.0,  0.0,
+  -0.5, -0.5,  0.5, -1.0,  0.0,  0.0,
+  -0.5,  0.5,  0.5, -1.0,  0.0,  0.0,
 
-  0.5,  0.5,  0.5,
-  0.5,  0.5, -0.5,
-  0.5, -0.5, -0.5,
-  0.5, -0.5, -0.5,
-  0.5, -0.5,  0.5,
-  0.5,  0.5,  0.5,
+    0.5,  0.5,  0.5,  1.0,  0.0,  0.0,
+    0.5,  0.5, -0.5,  1.0,  0.0,  0.0,
+    0.5, -0.5, -0.5,  1.0,  0.0,  0.0,
+    0.5, -0.5, -0.5,  1.0,  0.0,  0.0,
+    0.5, -0.5,  0.5,  1.0,  0.0,  0.0,
+    0.5,  0.5,  0.5,  1.0,  0.0,  0.0,
 
-  -0.5, -0.5, -0.5,
-  0.5, -0.5, -0.5,
-  0.5, -0.5,  0.5,
-  0.5, -0.5,  0.5,
-  -0.5, -0.5,  0.5,
-  -0.5, -0.5, -0.5,
+  -0.5, -0.5, -0.5,  0.0, -1.0,  0.0,
+    0.5, -0.5, -0.5,  0.0, -1.0,  0.0,
+    0.5, -0.5,  0.5,  0.0, -1.0,  0.0,
+    0.5, -0.5,  0.5,  0.0, -1.0,  0.0,
+  -0.5, -0.5,  0.5,  0.0, -1.0,  0.0,
+  -0.5, -0.5, -0.5,  0.0, -1.0,  0.0,
 
-  -0.5,  0.5, -0.5,
-  0.5,  0.5, -0.5,
-  0.5,  0.5,  0.5,
-  0.5,  0.5,  0.5,
-  -0.5,  0.5,  0.5,
-  -0.5,  0.5, -0.5,
+  -0.5,  0.5, -0.5,  0.0,  1.0,  0.0,
+    0.5,  0.5, -0.5,  0.0,  1.0,  0.0,
+    0.5,  0.5,  0.5,  0.0,  1.0,  0.0,
+    0.5,  0.5,  0.5,  0.0,  1.0,  0.0,
+  -0.5,  0.5,  0.5,  0.0,  1.0,  0.0,
+  -0.5,  0.5, -0.5,  0.0,  1.0,  0.0
 ], dtype=np.float32)
 
 # The Graphics class handles the creation of a window and the rendering of a static vector field. Functionality for
@@ -111,6 +111,7 @@ class Graphics:
     # Set camera location to cursor position and send the view matrix to the shader
     camera = glm.lookAt(np.array([x, y, 3.0]), np.array([x, y, 2.0]), np.array([0.0, 1.0, 0.0]))
     glUniformMatrix4fv(self.uniformLocs["view"], 1, GL_TRUE, np.array(camera).reshape(16))
+    glUniform3fv(self.uniformLocs["lightPos"], 1, np.array([x, y, 3.0]))
 
   def __scroll_callback(window, x, y):
     self = glfw.get_window_user_pointer(window)
@@ -154,7 +155,7 @@ class Graphics:
     # Parse the input file into frame datas
     self.frames = []
     with trange(1, len(lines)) as progress_bar:
-      progress_bar.set_description("Loading from " + vfd_filepath)
+      progress_bar.set_description("Loading frames")
       for f in progress_bar:
         self.frames.append(parse_array(lines[f]))
       
@@ -234,35 +235,42 @@ class Graphics:
     self.uniformLocs["front"] = glGetUniformLocation(self.shader, "front")
     self.uniformLocs["zoom"] = glGetUniformLocation(self.shader, "zoom")
     self.uniformLocs["colorControls"] = glGetUniformLocation(self.shader, "colorControls")
+    self.uniformLocs["lightPos"] = glGetUniformLocation(self.shader, "lightPos")
     glUniform3fv(self.uniformLocs["colorControls"], 1, np.array([1,1,1], dtype=np.float32)) # Default value
 
     # Configure geometry attribute
     float_size = np.dtype(np.float32).itemsize
     glEnableVertexAttribArray(0)
     glBindBuffer(GL_ARRAY_BUFFER, self.cube_vbo)
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * float_size, ctypes.c_void_p(0))
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * float_size, ctypes.c_void_p(0))
+    glBindBuffer(GL_ARRAY_BUFFER, 0)
+
+    # Configure normals attribute
+    glEnableVertexAttribArray(1)
+    glBindBuffer(GL_ARRAY_BUFFER, self.cube_vbo)
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * float_size, ctypes.c_void_p(3 * float_size))
     glBindBuffer(GL_ARRAY_BUFFER, 0)
 
     # Configure position attribute
-    glEnableVertexAttribArray(1)
-    glBindBuffer(GL_ARRAY_BUFFER, self.instance_vbo)
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 3 * float_size, ctypes.c_void_p(0));
-    glBindBuffer(GL_ARRAY_BUFFER, 0)
-    glVertexAttribDivisor(1, 1)
-
-    # Configure direction attribute
     glEnableVertexAttribArray(2)
     glBindBuffer(GL_ARRAY_BUFFER, self.instance_vbo)
-    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 6 * float_size, ctypes.c_void_p(self.pos_offset))
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 3 * float_size, ctypes.c_void_p(0));
     glBindBuffer(GL_ARRAY_BUFFER, 0)
     glVertexAttribDivisor(2, 1)
 
-    # Configure momentum attribute
+    # Configure direction attribute
     glEnableVertexAttribArray(3)
     glBindBuffer(GL_ARRAY_BUFFER, self.instance_vbo)
-    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, 6 * float_size, ctypes.c_void_p(self.pos_offset + 3 * float_size))
+    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, 6 * float_size, ctypes.c_void_p(self.pos_offset))
     glBindBuffer(GL_ARRAY_BUFFER, 0)
     glVertexAttribDivisor(3, 1)
+
+    # Configure momentum attribute
+    glEnableVertexAttribArray(4)
+    glBindBuffer(GL_ARRAY_BUFFER, self.instance_vbo)
+    glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, 6 * float_size, ctypes.c_void_p(self.pos_offset + 3 * float_size))
+    glBindBuffer(GL_ARRAY_BUFFER, 0)
+    glVertexAttribDivisor(4, 1)
 
     # Done setting vertex array state
     glBindVertexArray(0)
@@ -281,6 +289,7 @@ class Graphics:
     y = (y - height / 2) / height
     camera = glm.lookAt(np.array([x, y, 3.0]), np.array([x, y, 2.0]), np.array([0.0, 1.0, 0.0]))
     glUniformMatrix4fv(self.uniformLocs["view"], 1, GL_TRUE, np.array(camera).reshape(16))
+    glUniform3fv(self.uniformLocs["lightPos"], 1, np.array([x, y, 3.0]))
 
     glfw.show_window(self.window)
 
