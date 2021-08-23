@@ -41,7 +41,8 @@ import os.path
 # Import tqdm for nice command line progress bars, in this file for computing frame data
 from tqdm import trange
 
-# Import types and argparse for processing command line arguments
+# Import sys, types, and argparse for processing command line arguments
+import sys
 import types
 import argparse
 
@@ -72,9 +73,6 @@ def boundary_handler(index, array_length):
       return min(max(x, 0), array_length - 1)
 
     return np.vectorize(clamp)(index)
-  else:
-    print("Invalid boundary conditions, exiting.")
-    exit()
 
 
 ###############################
@@ -585,6 +583,11 @@ def get_initial_conditions(args):
 
 if __name__ == "__main__":
   parser = create_parser()
+  # If no command line arguments are given, print the command's usage and exit
+  if len(sys.argv) == 1:
+    parser.print_usage()
+    parser.exit()
+
   args = parser.parse_args()
   simulation_filename = set_custom_parameters(args)
   initial_conditions = get_initial_conditions(args)
@@ -605,7 +608,7 @@ if __name__ == "__main__":
       print("File %s not found, would you like to compute it? (yes - enter, no - n + enter)" % simulation_filename)
       ans = input()
       if ans == 'n':
-        exit()
+        parser.exit()
       
       compute_simulation_frames(simulation_filename, initial_conditions)
 
