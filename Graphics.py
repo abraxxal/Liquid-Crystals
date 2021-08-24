@@ -170,6 +170,9 @@ class Graphics:
 
     self.positions = parse_array(lines[0])
 
+    if self.verbose_mode:
+      print("Reading from %s..." % vfd_filepath)
+
     # Parse the input file into frame datas
     self.frames = []
     with trange(1, len(lines)) as progress_bar:

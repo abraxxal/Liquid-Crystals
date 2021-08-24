@@ -13,6 +13,8 @@ tolerance = 1E-20 * ds**3 # Error tolerance for iterative solver
 alpha = 0.0 # Damping factor (coefficient of D_t n)
 
 # Boundary conditions, either 'P' for "Periodic", 'N' for "Neumann", or 'D' for "Dirichlet"
+# Note that Neumann only works when K1 = K2 due to some unimplemented boundary behavior (namely, we need div(n) = 0 on 
+# the boundary for Neumann to properly work out)
 boundary_behavior = 'P'
 
 # Spatial boundary values
@@ -26,6 +28,10 @@ final_time = 1.0 # Simulation time
 K1 = 0.5; # Splay
 K2 = 1.0; # Twist
 K3 = 0.5; # Bend
+
+# Whether or not to allow central derivatives in certain expressions (terms in F* and energy)
+a_term_central = True
+c_term_central = True
 
 ###############################
 ##    Imports and Logging    ##
@@ -156,10 +162,13 @@ def mid(pair):
 
 dim = 3 # Simulation is always run in 3 dimensions, even if z-axis is a singleton
 
-def init_computation_domain():
+def init_computation_domain(input_dt = None):
   global dt, C1, C2, C3, t_axis, num_t, time_indices, x_axis, y_axis, z_axis, space_axes, space_indices, space_sizes
 
-  dt = 0.1 * ds
+  if input_dt is None:
+    dt = 0.1 * ds
+  else:
+    dt = input_dt
 
   # Constants from the paper
   C1 = K1 - K2
@@ -218,17 +227,21 @@ def f_star(nfield_pair):
         nj = nfield_pair.component(j)
         nk = nfield_pair.component(k)
 
-        # term_a = diff(i, diff(j, mid(nj)))
-        # term_b = diff(j, diff(j, mid(ni), '-'), '+')
-        # term_c = diff(j, mid(nj) * mid(nk * diff(k, ni)))
-        # term_d = mid(nj * diff(j, nk)) * diff(i, mid(nk))
+        if a_term_central:
+          term_a = diff(i, diff(j, mid(nj)))
+        else:
+          term_a = diff(i, diff(j, mid(nj), '-'), '+')
 
-        term_a = diff(i, diff(j, mid(nj), '-'), '+')
         term_b = diff(j, diff(j, mid(ni), '-'), '+')
-        term_c = diff(j, mid(nj) * mid(nk * diff(k, ni, '-')), '+')
-        term_d = mid(nj * diff(j, nk, '-')) * diff(i, mid(nk), '-')
+        
+        if c_term_central:
+          term_c = diff(j, mid(nj) * mid(nk * diff(k, ni)))
+          term_c -= mid(nj * diff(j, nk)) * diff(i, mid(nk))
+        else:
+          term_c = diff(j, mid(nj) * mid(nk * diff(k, ni, '-')), '+')
+          term_c -= mid(nj * diff(j, nk, '-')) * diff(i, mid(nk), '-')
 
-        sum += C1 * term_a + C2 * term_b + C3 * (term_c - term_d)
+        sum += C1 * term_a + C2 * term_b + C3 * term_c
 
     result[:,:,:,i] = sum
   
@@ -245,11 +258,15 @@ def energy(nfield):
 
       term_b += diff(j, ni, '-')**2
 
-      term_c += nj * diff(j, ni, '-')
-      # term_c += nj * diff(j, ni)
+      if c_term_central:
+        term_c += nj * diff(j, ni)
+      else:
+        term_c += nj * diff(j, ni, '-')
 
-    term_a += diff(i, ni, '-')
-    # term_a += diff(i, ni)
+    if a_term_central:
+      term_a += diff(i, ni)
+    else:
+      term_a += diff(i, ni, '-')
 
   term_a = term_a**2
   term_c = term_c**2
@@ -306,8 +323,8 @@ def iterative_solver(nfield_old, wfield_old):
   wfield_pair = make_constant_pair(wfield_old)
   
   while True:
-    nfield_s = nfield_pair.new
-    wfield_s = wfield_pair.new
+    nfield_s = nfield_pair.new.copy()
+    wfield_s = wfield_pair.new.copy()
 
     nfield_pair.new = n_solver(nfield_pair.old, wfield_pair) # Update (n^m, n^{m,s}) to (n^m, n^{m,s+1})
     wfield_pair.new = w_solver(wfield_pair.old, nfield_pair) # Update (w^m, w^{m,s}) to (w^m, w^{m,s+1})
@@ -381,6 +398,10 @@ def compute_simulation_frames(output_vfd_filepath, initial_field=None):
   nfield, wfield = nfield_initial, wfield_initial
   energy_initial = energy(nfield)
 
+  if verbose:
+    print("Writing to %s..." % output_vfd_filepath)
+
+  total_abs_energy_diff = 0
   total_energy_diff = 0
   total_iterations = 0
   with trange(num_t + 1) as progress_bar:
@@ -412,20 +433,27 @@ def compute_simulation_frames(output_vfd_filepath, initial_field=None):
         # this frame and the old one
         energy_new = energy(nfield)
         energy_difference = energy_new - energy_old
-        energy_average = (energy_new + energy_old) / 2
-        progress_bar.set_postfix(iters=iterations, ediff=energy_difference, ratio=energy_difference/energy_average)
+        total_energy_diff += energy_difference
+
+        progress_bar.set_postfix(iters=iterations, ediff=energy_difference, total_ediff=total_energy_diff)
 
         # Keep track of total energy/iterations for post-compute averaging (see prints below)
-        total_energy_diff += energy_difference
+        total_abs_energy_diff += abs(energy_difference)
         total_iterations += iterations
 
       
   if verbose:
+    total_energy_diff = energy(nfield) - energy_initial
     print("Done computing. Printing performance info...")
     print("Initial and final energy: %.2f --> %.2f" % (energy_initial, energy(nfield)))
-    print("Net energy change: %.2f" % (energy(nfield) - energy_initial))
-    print("Percent energy change: %.3f" % ((energy(nfield) - energy_initial) / energy_initial * 100))
+    print("Net energy change: %.2f" % total_energy_diff)
+    print("Percent energy change: %.3f" % (total_energy_diff / energy_initial * 100))
+
+    print("Absolute energy variation: %.2f" % total_abs_energy_diff)
+    print("Percent absolute energy variation: %.3f" % (total_abs_energy_diff / energy_initial * 100))
+
     print("Average energy difference per frame: %.2f" % (total_energy_diff / num_t))
+    print("Average absolute energy difference per frame: %.2f" % (total_abs_energy_diff / num_t))
     print("Average solver iterations per frame: %.2f" % (total_iterations / num_t))
   
   file.close()
@@ -482,12 +510,15 @@ def create_parser():
   parser.add_argument("--elastic-constants", "-consts", dest="e_consts", action="store", nargs=3, type=float,
                       metavar=("K1", "K2", "K3"), help="specify the Frank elastic constants, which control the \
                       liquid crystal's elastic response to splay, twist, and bend respectively")
+  parser.add_argument("--non-central-terms", "-ncterms", dest="ncterms", action="store", nargs=1, 
+                      choices = ['A', 'AC', 'C'], help="specify which terms in F* and the energy (see paper) should \
+                      use forward/backward derivatives instead of central derivatives")
 
   return parser
 
 # Overwrite any default simulation parameters obtained from command line arguments (other than initial conditions)
 def set_custom_parameters(args):
-  global verbose
+  global verbose, a_term_central, c_term_central
   global ds, dt, tolerance, alpha, boundary_behavior, min_x, max_x, min_y, max_y, min_z, max_z, final_time, K1, K2, K3
 
   verbose = args.verbose_mode
@@ -526,20 +557,33 @@ def set_custom_parameters(args):
   min_z = args.z_bounds[0]
   max_z = args.z_bounds[1]
 
-  # Run this now to compute the default value of dt
-  init_computation_domain()
-
-  # Overwrite the value of dt if the user specified
-  if (r := args.time_step) is not None:
-    dt = r[0]
-    mods.append("dt=%.1e" % dt)
-
   # If specified, overwrite the default Frank elastic constants
   if (r := args.e_consts) is not None: 
     K1 = r[0]
     K2 = r[1]
     K3 = r[2]
     mods.append("K=(%.1f,%.1f,%.1f)" % (K1, K2, K3))
+
+  # Overwrite the value of dt if the user specified
+  if (r := args.time_step) is not None:
+    dt = r[0]
+    mods.append("dt=%.1e" % dt)
+  else:
+    dt = None
+
+  # Run this now to compute the default value of dt
+  init_computation_domain(dt)
+
+  # Overwrite the default derivative behavior if specified
+  if (r := args.ncterms) is not None:
+    r = r[0]
+    if 'A' in r:
+      a_term_central = False
+    
+    if 'C' in r:
+      c_term_central = False
+
+    mods.append("nc=%s" % r)
 
   # Attribs list for more fundamental simulation parameters (namely 3D and damping)
   attribs = ["3D"] if len(z_axis) > 1 else []
@@ -600,6 +644,8 @@ if __name__ == "__main__":
       ans = input()
       if ans != 'n':
         compute_simulation_frames(simulation_filename, initial_conditions)
+    else:
+      compute_simulation_frames(simulation_filename, initial_conditions)
 
   # If the graphics option is specified, display graphics (if a file is not found with the given settings, ask if
   # the user wants to compute a new data file with those settings)

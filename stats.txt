@@ -1,0 +1,152 @@
+This file contains some of the verbose mode statistics for interesting simulations, as well as any other notes.
+General observations:
+- There is almost always a net loss of energy
+- Large elastic constants make things particularly unstable
+
+
+P-1.0s[dmp=1e+03].vfd:
+Note that this one should be losing energy due to the damping factor.
+Initial and final energy: 47707.75 --> 44676.56
+Net energy change: -3031.19
+Percent energy change: -6.354
+Absolute energy variation: 68117.07
+Percent absolute energy variation: 142.780
+Average energy difference per frame: -4.73
+Average absolute energy difference per frame: 106.27
+Average solver iterations per frame: 8.43
+
+P-3.0s[dmp=1e+03].vfd:
+Note that this one should be losing energy due to the damping factor.
+Initial and final energy: 47707.75 --> 46523.24
+Net energy change: -1184.51
+Percent energy change: -2.483
+Absolute energy variation: 211548.96
+Percent absolute energy variation: 443.427
+Average energy difference per frame: -0.62
+Average absolute energy difference per frame: 110.12
+Average solver iterations per frame: 8.81
+
+N-1.0s[K=(1.0,1.0,1.5)].vfd:
+Initial and final energy: 120281.40 --> 53296.54
+Net energy change: -66984.86
+Percent energy change: -55.690
+Absolute energy variation: 324148.87
+Percent absolute energy variation: 269.492
+Average energy difference per frame: -104.50
+Average absolute energy difference per frame: 505.69
+Average solver iterations per frame: 11.23
+Reading from %s...outputs/N-1.0s[K=(1.0,1.0,1.5)].vfd
+
+N-1.0s[K=(1.0,1.0,1.5),nc=C].vfd:
+Initial and final energy: 118371.46 --> 52176.68
+Net energy change: -66194.77
+Percent energy change: -55.921
+Absolute energy variation: 239473.26
+Percent absolute energy variation: 202.307
+Average energy difference per frame: -103.27
+Average absolute energy difference per frame: 373.59
+Average solver iterations per frame: 11.63
+Reading from %s...outputs/N-1.0s[K=(1.0,1.0,1.5),nc=C].vfd
+
+P-1.0s[K=(2.0,10.0,-0.1)].vfd:
+Tolerance on this one is 10^(-20).
+Initial and final energy: 90081.28 --> 198902.69
+Net energy change: 108821.41
+Percent energy change: 120.804
+Absolute energy variation: 1983345.47
+Percent absolute energy variation: 2201.729
+Average energy difference per frame: 169.77
+Average absolute energy difference per frame: 3094.14
+Average solver iterations per frame: 46.55
+
+P-1.0s[K=(10.0,1.0,0.0)].vfd:
+Tolerance on this one is 10^(-20).
+Initial and final energy: 376950.90 --> 216299.01
+Net energy change: -160651.88
+Percent energy change: -42.619
+Absolute energy variation: 1780076.23
+Percent absolute energy variation: 472.230
+Average energy difference per frame: -250.63
+Average absolute energy difference per frame: 2777.03
+Average solver iterations per frame: 14.72
+
+P-1.0s[K=(1.0,1.0,1.0)].vfd:
+Initial and final energy: 93367.14 --> 70311.41
+Net energy change: -23055.72
+Percent energy change: -24.694
+Absolute energy variation: 241550.37
+Percent absolute energy variation: 258.710
+Average energy difference per frame: -35.97
+Average absolute energy difference per frame: 376.83
+Average solver iterations per frame: 10.67
+
+P-1.0s{wave2}.vfd:
+Initial and final energy: 25404.09 --> 6552.04
+Net energy change: -18852.05
+Percent energy change: -74.209
+Absolute energy variation: 81891.71
+Percent absolute energy variation: 322.356
+Average energy difference per frame: -29.41
+Average absolute energy difference per frame: 127.76
+Average solver iterations per frame: 9.00
+
+P-1.0s.vfd:
+Initial and final energy: 47707.75 --> 39115.49
+Net energy change: -8592.26
+Percent energy change: -18.010
+Absolute energy variation: 82827.74
+Percent absolute energy variation: 173.615
+Average energy difference per frame: -13.40
+Average absolute energy difference per frame: 129.22
+Average solver iterations per frame: 10.03
+
+P-1.0s[K=(1.0,0.0,0.0)].vfd:
+Initial and final energy: 37490.25 --> 16244.63
+Net energy change: -21245.62
+Percent energy change: -56.670
+Absolute energy variation: 109556.00
+Percent absolute energy variation: 292.225
+Average energy difference per frame: -33.14
+Average absolute energy difference per frame: 170.91
+Average solver iterations per frame: 7.93
+Reading from %s...outputs/P-1.0s[K=(1.0,0.0,0.0)].vfd
+
+P-1.0s[K=(0.0,1.0,0.0)].vfd:
+Initial and final energy: 2048.36 --> 10912.10
+Net energy change: 8863.74
+Percent energy change: 432.723
+Absolute energy variation: 63139.59
+Percent absolute energy variation: 3082.442
+Average energy difference per frame: 13.83
+Average absolute energy difference per frame: 98.50
+Average solver iterations per frame: 11.50
+
+P-1.0s[K=(0.0,0.0,1.0)].vfd
+Initial and final energy: 53828.52 --> 22200.60
+Net energy change: -31627.92
+Percent energy change: -58.757
+Absolute energy variation: 265203.53
+Percent absolute energy variation: 492.682
+Average energy difference per frame: -49.34
+Average absolute energy difference per frame: 413.73
+Average solver iterations per frame: 6.13
+
+P-1.0s{wave1}.vfd
+Initial and final energy: 1201860.42 --> 630679.60
+Net energy change: -571180.82
+Percent energy change: -47.525
+Absolute energy variation: 3584917.53
+Percent absolute energy variation: 298.281
+Average energy difference per frame: -891.08
+Average absolute energy difference per frame: 5592.70
+Average solver iterations per frame: 12.87
+
+N-1.0s[K=(1.0,1.0,0.5)]{wave1}.vfd
+Initial and final energy: 414790.12 --> 485305.16
+Net energy change: 70515.04
+Percent energy change: 17.000
+Absolute energy variation: 804302.59
+Percent absolute energy variation: 193.906
+Average energy difference per frame: 110.01
+Average absolute energy difference per frame: 1254.76
+Average solver iterations per frame: 11.96
