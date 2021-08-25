@@ -68,13 +68,13 @@ def axial_array(array, axis, index):
 
 # Given a potentially out-of-bounds array of indices, returns a new in-bounds array of indices. The behavior of this
 # function depends on the boundary conditions. Periodic conditions wrap out-of-bounds indices back around to smaller
-# index values, as if indices were on a cirlce, whereas Neumann conditions clamp out-of-bounds indices to the bounds.
+# index values, as if indices were on a circle, whereas Neumann conditions clamp out-of-bounds indices to the bounds.
 def boundary_handler(index, array_length):
   if boundary_behavior == 'P':
     # If periodic, wrap around
     return index % array_length
-  elif boundary_behavior == 'N':
-    # If Neumann, clamp to range
+  else:
+    # If Neumann or other, clamp to range
     def clamp(x):
       return min(max(x, 0), array_length - 1)
 
@@ -344,7 +344,7 @@ def iterative_solver(nfield_old, wfield_old):
     iterations += 1
 
   return iterations, nfield_pair.new, wfield_pair.new
-  
+
 ###############################
 ##   Simulation and Output   ##
 ###############################
@@ -428,6 +428,16 @@ def compute_simulation_frames(output_vfd_filepath, initial_field=None):
 
         # New frame
         iterations, nfield, wfield = iterative_solver(nfield, wfield)
+
+        if boundary_behavior == 'D':
+          nfield[0,:,:,0] = nfield_initial[0,:,:,0]
+          nfield[num_x - 1,:,:,0] = nfield_initial[num_x - 1,:,:,0]
+          
+          nfield[:,0,:,1] = nfield_initial[:,0,:,1]
+          nfield[:,num_y - 1,:,1] = nfield_initial[:,num_y - 1,:,1]
+          
+          nfield[:,:,0,2] = nfield_initial[:,:,0,2]
+          nfield[:,:,num_z - 1,2] = nfield_initial[:,:,num_z - 1,2]
 
         # Compute some per-frame info, such as number of iterative solver iterations and energy difference between
         # this frame and the old one
