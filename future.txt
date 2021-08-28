@@ -3,3 +3,7 @@ enforcing div(n) = 0 for Neumann boundary conditions
 - in 2D,  all terms of div(n) should be 0 (does not work in 3D)
 - in order to implement this, we should keep the clamping for overflowing array cells and anytime there's a D_j n_j term, 
 we should set the entire array to be 0 on the boundary
+
+add a command line option to print performance info (energy difference, average iterations, cumulative energy table, etc.) to a file
+
+optimize simulation file storage (use binary instead of strings for floats, perhaps run a compression algorithm as well)
