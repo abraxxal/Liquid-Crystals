@@ -8,7 +8,6 @@
 
 # Discretization values
 ds = 1/64; # Spatial step length
-dt = 0.1 * ds # Temporal step length
 tolerance = 1E-20 * ds**3 # Error tolerance for iterative solver
 alpha = 0.0 # Damping factor (coefficient of D_t n)
 
@@ -40,8 +39,7 @@ c_term_central = True
 # Import NumPy for all batch computing operations
 import numpy as np
 
-# Import custom made Graphics module and os.path for reading and rendering pre-computed frame data
-from Graphics import *
+# Import os.path for reading and writing pre-computed frame data
 import os.path
 
 # Import tqdm for nice command line progress bars, in this file for computing frame data
@@ -248,7 +246,7 @@ def f_star(nfield_pair):
   return result
 
 # Given a vector field, returns the corresponding Frank-Oseen energy density field.
-def energy(nfield):
+def energy(nfield, wfield):
   term_a, term_b, term_c = 0, 0, 0
 
   for i in range(dim):
@@ -272,7 +270,8 @@ def energy(nfield):
   term_c = term_c**2
 
   energy_field = 0.5 * (C1 * term_a + C2 * term_b + C3 * term_c)
-  return np.einsum("xyz->", energy_field)
+  n_energy = np.einsum("xyz->", energy_field)
+  return n_energy + 0.5 * np.einsum("xyzi,xyzi->", wfield, wfield)
 
 ###############################
 ##          Solvers          ##
@@ -396,7 +395,7 @@ def compute_simulation_frames(output_vfd_filepath, initial_field=None):
 
   # Next loop through all timesteps, computing and writing one frame per iteration
   nfield, wfield = nfield_initial, wfield_initial
-  energy_initial = energy(nfield)
+  energy_initial = energy(nfield, wfield)
 
   if verbose:
     print("Writing to %s..." % output_vfd_filepath)
@@ -424,7 +423,7 @@ def compute_simulation_frames(output_vfd_filepath, initial_field=None):
       
       # If not on the last frame, compute another frame
       if f < num_t:
-        energy_old = energy(nfield)
+        energy_old = energy(nfield, wfield)
 
         # New frame
         iterations, nfield, wfield = iterative_solver(nfield, wfield)
@@ -441,7 +440,7 @@ def compute_simulation_frames(output_vfd_filepath, initial_field=None):
 
         # Compute some per-frame info, such as number of iterative solver iterations and energy difference between
         # this frame and the old one
-        energy_new = energy(nfield)
+        energy_new = energy(nfield, wfield)
         energy_difference = energy_new - energy_old
         total_energy_diff += energy_difference
 
@@ -453,9 +452,9 @@ def compute_simulation_frames(output_vfd_filepath, initial_field=None):
 
       
   if verbose:
-    total_energy_diff = energy(nfield) - energy_initial
+    total_energy_diff = energy_new - energy_initial
     print("Done computing. Printing performance info...")
-    print("Initial and final energy: %.2f --> %.2f" % (energy_initial, energy(nfield)))
+    print("Initial and final energy: %.2f --> %.2f" % (energy_initial, energy_new))
     print("Net energy change: %.2f" % total_energy_diff)
     print("Percent energy change: %.3f" % (total_energy_diff / energy_initial * 100))
 
@@ -668,5 +667,7 @@ if __name__ == "__main__":
       
       compute_simulation_frames(simulation_filename, initial_conditions)
 
+    # Only import graphics if we need it, since it uses a bunch of uncommon libraries
+    from Graphics import *
     graphics = Graphics(simulation_filename, 800, 800, "Time: 0.00 seconds", verbose)
     graphics.run(dt)

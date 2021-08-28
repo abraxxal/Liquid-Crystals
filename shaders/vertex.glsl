@@ -96,7 +96,7 @@ void main()
   model *= scale(vec3(zoom)); // Now, the entire vector field by the zoom factor
   model *= translate(position); // Then move it to its location in the field
   model *= lookAt(vec3(0), direction); // Then orient each model to face its specified direction
-  model *= scale(vec3(1, 1, 10) / 200); // First, scale down the cube model and shape it into a rectangular prism
+  model *= scale(vec3(0.75, 0.75, 7.5) / 200); // First, scale down the cube model and shape it into a rectangular prism
 
   // Compute position and normal data
   gl_Position = proj * view * model * vec4(cube_vertex, 1);
